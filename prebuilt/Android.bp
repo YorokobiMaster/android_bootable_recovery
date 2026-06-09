@@ -1,0 +1,7 @@
+soong_namespace {
+    imports: [
+		"external/lptools",
+		"external/se_omapi",
+		"external/libmicrohttpd",
+	],
+}

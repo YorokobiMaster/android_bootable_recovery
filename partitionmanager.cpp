@@ -1825,15 +1825,6 @@ int TWPartitionManager::Wipe_Android_Secure(void) {
 	return false;
 }
 
-bool TWPartitionManager::Destroy_Metadata_Encryption_Block_Device() {
-#if defined(TW_INCLUDE_CRYPTO) && defined(TW_INCLUDE_FBE_METADATA_DECRYPT) && defined(USE_FSCRYPT)
-	return android::vold::destroy_metadata_encryption_dm_device();
-#else
-	LOGERR("Metadata encryption block-device teardown is unavailable in this build.\n");
-	return false;
-#endif
-}
-
 bool TWPartitionManager::Wipe_Encryption_Key_Directory(const string& Path) {
 	if (Path.empty() || Path[0] != '/') {
 		LOGERR("Refusing to remove invalid encryption key directory '%s'.\n", Path.c_str());

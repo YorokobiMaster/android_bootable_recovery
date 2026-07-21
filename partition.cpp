@@ -2216,6 +2216,10 @@ bool TWPartition::Wipe_Encryption() {
 	if (!UnMount(true))
 		return false;
 	if (Is_Decrypted && !Decrypted_Block_Device.empty()) {
+		if (Is_FBE && !PartitionManager.Destroy_Metadata_Encryption_Block_Device()) {
+			LOGERR("Unable to remove metadata encryption block device, refusing to format userdata.\n");
+			return false;
+		}
 //		if (delete_crypto_blk_dev((char*)("userdata")) != 0) {
 //			LOGERR("Error deleting crypto block device, continuing anyway.\n");
 //		}

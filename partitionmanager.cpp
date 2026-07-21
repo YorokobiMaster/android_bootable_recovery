@@ -691,8 +691,25 @@ void TWPartitionManager::Decrypt_Data() {
 #endif
 		}
 		if (Decrypt_Data->Is_FBE) {
+			bool attempt_default_password = false;
 #ifndef TW_SKIP_FBE_DEFAULT_PASSWORD
-			if (DataManager::GetIntValue(TW_CRYPTO_PWTYPE) == 0) {
+			attempt_default_password = DataManager::GetIntValue(TW_CRYPTO_PWTYPE) == 0;
+#else
+			// On devices that must preserve the explicit credential attempt, only
+			// auto-unlock user 0 when synthetic-password parsing positively found
+			// that the active LSKF protector has no credential data.  Do not use
+			// TW_CRYPTO_PWTYPE here: detection failures are intentionally folded to
+			// zero before that UI variable is populated.
+			if (TWFunc::Path_Exists("/data/system_de/0/spblob")) {
+				for (const auto& user : Users_List) {
+					if (user.userId == "0") {
+						attempt_default_password = user.type == 0;
+						break;
+					}
+				}
+			}
+#endif
+			if (attempt_default_password) {
 				if (Decrypt_Device("!") == 0) {
 					gui_msg("decrypt_success=Successfully decrypted with default password.");
 					DataManager::SetValue(TW_IS_ENCRYPTED, 0);
@@ -700,8 +717,10 @@ void TWPartitionManager::Decrypt_Data() {
 					gui_err("unable_to_decrypt=Unable to decrypt with default password.");
 				}
 			}
-#else
-			LOGINFO("Skipping automatic FBE default-password attempt\n");
+#ifdef TW_SKIP_FBE_DEFAULT_PASSWORD
+			else {
+				LOGINFO("Skipping automatic FBE default-password attempt: user 0 was not positively identified as credential-free\n");
+			}
 #endif
 		} else {
 			LOGINFO("FBE setup failed. Trying FDE...\n");

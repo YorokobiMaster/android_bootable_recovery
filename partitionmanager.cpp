@@ -1825,6 +1825,72 @@ int TWPartitionManager::Wipe_Android_Secure(void) {
 	return false;
 }
 
+bool TWPartitionManager::Wipe_Encryption_Key_Directory(const string& Path) {
+	if (Path.empty() || Path[0] != '/') {
+		LOGERR("Refusing to remove invalid encryption key directory '%s'.\n", Path.c_str());
+		return false;
+	}
+
+	const string mount_point = TWFunc::Get_Root_Path(Path);
+	if (mount_point.empty() || mount_point == "/" || Path == mount_point ||
+		Path.compare(0, mount_point.size() + 1, mount_point + "/") != 0) {
+		LOGERR("Refusing to remove encryption key directory '%s': unsafe partition root '%s'.\n",
+			Path.c_str(), mount_point.c_str());
+		return false;
+	}
+
+	TWPartition* partition = Find_Partition_By_Path(mount_point);
+	if (partition == nullptr) {
+		LOGERR("Unable to find containing partition for encryption key directory '%s'.\n", Path.c_str());
+		return false;
+	}
+	if (!partition->Mount(true)) {
+		LOGERR("Unable to mount '%s' before removing encryption key directory.\n", mount_point.c_str());
+		return false;
+	}
+
+	struct stat st;
+	if (lstat(Path.c_str(), &st) != 0) {
+		if (errno == ENOENT) {
+			LOGINFO("Encryption key directory '%s' is already absent.\n", Path.c_str());
+			return true;
+		}
+		LOGERR("Unable to inspect encryption key directory '%s': %s.\n", Path.c_str(), strerror(errno));
+		return false;
+	}
+	if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
+		LOGERR("Refusing to remove encryption key path '%s': target is not a real directory.\n", Path.c_str());
+		return false;
+	}
+
+	char resolved_mount[PATH_MAX];
+	char resolved_path[PATH_MAX];
+	if (realpath(mount_point.c_str(), resolved_mount) == nullptr ||
+		realpath(Path.c_str(), resolved_path) == nullptr) {
+		LOGERR("Unable to resolve encryption key directory '%s': %s.\n", Path.c_str(), strerror(errno));
+		return false;
+	}
+	const string canonical_mount(resolved_mount);
+	const string canonical_path(resolved_path);
+	if (canonical_path == canonical_mount ||
+		canonical_path.compare(0, canonical_mount.size() + 1, canonical_mount + "/") != 0) {
+		LOGERR("Refusing to remove encryption key directory '%s': it resolves outside '%s'.\n",
+			Path.c_str(), mount_point.c_str());
+		return false;
+	}
+
+	LOGINFO("Removing only encryption key directory '%s'; preserving partition '%s'.\n",
+		canonical_path.c_str(), canonical_mount.c_str());
+	if (TWFunc::removeDir(canonical_path, false) != 0) {
+		LOGERR("Unable to remove encryption key directory '%s': %s.\n",
+			canonical_path.c_str(), strerror(errno));
+		return false;
+	}
+	sync();
+	LOGINFO("Encryption key directory removed without wiping '%s'.\n", canonical_mount.c_str());
+	return true;
+}
+
 int TWPartitionManager::Format_Data(void) {
 	TWPartition* dat = Find_Partition_By_Path("/data");
 	TWPartition* metadata = Find_Partition_By_Path("/metadata");

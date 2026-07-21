@@ -317,6 +317,15 @@ endif
 ifneq ($(TW_ADDITIONAL_APEX_FILES),)
     LOCAL_CFLAGS += -DTW_ADDITIONAL_APEX_FILES=$(TW_ADDITIONAL_APEX_FILES)
 endif
+ifeq ($(TW_KEEP_VENDOR_MOUNTED),true)
+    LOCAL_CFLAGS += -DTW_KEEP_VENDOR_MOUNTED
+endif
+ifeq ($(TW_KEEP_ODM_MOUNTED),true)
+    LOCAL_CFLAGS += -DTW_KEEP_ODM_MOUNTED
+endif
+ifeq ($(TW_SKIP_FBE_DEFAULT_PASSWORD),true)
+    LOCAL_CFLAGS += -DTW_SKIP_FBE_DEFAULT_PASSWORD
+endif
 ifneq ($(TW_LOAD_VENDOR_MODULES),)
     LOCAL_SRC_FILES += kernel_module_loader.cpp
     LOCAL_C_INCLUDES += system/core/libmodprobe/include
@@ -338,26 +347,18 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     LOCAL_C_INCLUDES += external/boringssl/src/include bootable/recovery/crypto
     TW_INCLUDE_CRYPTO_FBE := true
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE
-    LOCAL_SHARED_LIBRARIES += android.frameworks.stats@1.0 android.hardware.authsecret@1.0 \
-        android.security.authorization-ndk \
-        android.hardware.oemlock@1.0 libf2fs_sparseblock \
-        libandroidicu.recovery \
-        lib_android_keymaster_keymint_utils \
-        android.hardware.gatekeeper-V1-ndk \
-        android.hardware.gatekeeper@1.0 \
-        android.hardware.weaver@1.0 \
+    LOCAL_SHARED_LIBRARIES += lib_android_keymaster_keymint_utils-twrp-a15 \
+        android.hardware.gatekeeper-V1-ndk-twrp-a15 \
+        android.hardware.security.keymint-V3-ndk-twrp-a15 \
         android.hardware.weaver-V2-ndk \
-        android.frameworks.stats@1.0 \
-        android.security.maintenance-ndk \
-        android.system.keystore2-V4-ndk \
+        libf2fs_sparseblock \
         libkeyutils \
         liblog \
-        libsqlite.recovery \
         libsysutils \
-        libkeystoreinfo.recovery \
-        libgatekeeper_aidl
+        libgatekeeper_aidl \
+        libkeymint_support-twrp-a15
 
-    LOCAL_STATIC_LIBRARIES += libkeymint_support
+    LOCAL_STATIC_LIBRARIES += libsqlite_static_twrp_keystore
 
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE_METADATA_DECRYPT
 

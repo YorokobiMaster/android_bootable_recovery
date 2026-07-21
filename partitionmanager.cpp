@@ -486,10 +486,20 @@ clear:
 	}
 #endif
 
+#ifndef TW_KEEP_ODM_MOUNTED
 	if (odm) odm->UnMount(Display_Error);
+#else
+	if (odm)
+		LOGINFO("Keeping odm mounted for recovery runtime services\n");
+#endif
 	if (recovery_mode)
 		Process_Keymaster_Version(ven, false);
+#ifndef TW_KEEP_VENDOR_MOUNTED
 	if (ven) ven->UnMount(Display_Error);
+#else
+	if (ven)
+		LOGINFO("Keeping vendor mounted for recovery runtime services\n");
+#endif
 	return true;
 }
 
@@ -673,6 +683,7 @@ void TWPartitionManager::Decrypt_Data() {
 #endif
 		}
 		if (Decrypt_Data->Is_FBE) {
+#ifndef TW_SKIP_FBE_DEFAULT_PASSWORD
 			if (DataManager::GetIntValue(TW_CRYPTO_PWTYPE) == 0) {
 				if (Decrypt_Device("!") == 0) {
 					gui_msg("decrypt_success=Successfully decrypted with default password.");
@@ -681,6 +692,9 @@ void TWPartitionManager::Decrypt_Data() {
 					gui_err("unable_to_decrypt=Unable to decrypt with default password.");
 				}
 			}
+#else
+			LOGINFO("Skipping automatic FBE default-password attempt\n");
+#endif
 		} else {
 			LOGINFO("FBE setup failed. Trying FDE...\n");
 // 			Set_Crypto_State();
@@ -2060,6 +2074,55 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 		LOGERR("Unable to locate data partition.\n");
 }
 
+bool TWPartitionManager::Refresh_User0_ReadOnly_Decrypt_State(bool* mtp_refresh_failed) {
+	if (mtp_refresh_failed != nullptr)
+		*mtp_refresh_failed = false;
+
+	TWPartition* dat = Find_Partition_By_Path("/data");
+	if (dat == nullptr || !dat->Is_Mounted()) {
+		LOGERR("Read-only decrypt state refresh: /data is unavailable.\n");
+		return false;
+	}
+
+	const bool current_storage_is_data =
+		Find_Partition_By_Path(DataManager::GetCurrentStoragePath()) == dat;
+	if (dat->Has_Data_Media) {
+		dat->Storage_Path = TWFunc::Path_Exists("/data/media/0")
+			? "/data/media/0" : "/data/media";
+		dat->Symlink_Path = dat->Storage_Path;
+		DataManager::SetValue(TW_INTERNAL_PATH, dat->Storage_Path);
+	}
+
+	Mark_User_Decrypted(0);
+	dat->Is_Encrypted = true;
+	dat->Is_Decrypted = true;
+	DataManager::SetValue(TW_IS_DECRYPTED, 1);
+	DataManager::SetValue(TW_IS_ENCRYPTED, 0);
+
+	const bool state_refreshed = dat->Update_Size(false);
+	if (!state_refreshed) {
+		LOGERR("Read-only decrypt state refresh: unable to update /data size.\n");
+	} else {
+		DataManager::SetValue(TW_BACKUP_DATA_SIZE,
+			static_cast<int>(dat->Backup_Size / 1048576LLU));
+		if (current_storage_is_data) {
+			DataManager::SetValue(TW_STORAGE_FREE_SIZE,
+				static_cast<int>(dat->Free / 1048576LLU));
+			DataManager::SetValue("tw_storage_display_name", dat->Storage_Name);
+		}
+	}
+
+	if (current_storage_is_data && DataManager::GetCurrentStoragePath() != dat->Storage_Path)
+		DataManager::SetValue("tw_storage_path", dat->Storage_Path);
+	if (current_storage_is_data)
+		DataManager::SetValue(TW_ZIP_LOCATION_VAR, dat->Storage_Path);
+
+	// TWRP16's MTP implementation does not have the r52 lifecycle lock yet.
+	// Leave the already-running MTP process untouched; a later restart can
+	// republish storage without weakening the decrypt path.
+	return state_refreshed;
+}
+
 void TWPartitionManager::Parse_Users() {
 #ifdef TW_INCLUDE_FBE
 	char user_check_result[PROPERTY_VALUE_MAX];
@@ -2192,15 +2255,22 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 		while (!TWFunc::Path_Exists("/data/system/users/gatekeeper.password.key") && --retry_count)
 			usleep(2000); // A small sleep is needed after mounting /data to ensure reliable decrypt...maybe because of DE?
 		gui_msg(Msg("decrypting_user_fbe=Attempting to decrypt FBE for user {1}...")(user_id));
-		if (android::keystore::Decrypt_User(user_id, Password)) {
+		if (user_id != 0) {
+			gui_msg(Msg(msg::kError, "readonly_decrypt_user0_only=This recovery build only permits read-only decryption of user 0."));
+			return -1;
+		}
+		std::string readonly_status;
+		if (android::vold::Decrypt_User0_ReadOnly(Password, &readonly_status)) {
 			gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")(user_id));
-			Mark_User_Decrypted(user_id);
-			if (user_id == 0) {
-				Post_Decrypt("");
+			bool mtp_refresh_failed = false;
+			if (!Refresh_User0_ReadOnly_Decrypt_State(&mtp_refresh_failed)) {
+				gui_msg(Msg(msg::kWarning, "readonly_decrypt_state_refresh_failed=Decrypt succeeded, but TWRP state refresh was incomplete."));
+				LOGERR("User 0 read-only decrypt succeeded, but runtime state refresh was incomplete.\n");
 			}
-
 			return 0;
 		} else {
+			if (readonly_status == "blocked-repeat")
+				gui_msg(Msg(msg::kWarning, "readonly_decrypt_repeat_blocked=The one allowed decrypt attempt has already been used. Restart recovery before trying again."));
 			gui_msg(Msg(msg::kError, "decrypt_user_fail_fbe=Failed to decrypt user {1}")(user_id));
 		}
 #else
@@ -3663,8 +3733,7 @@ void TWPartitionManager::Setup_Super_Partition() {
 
 	superPartition->Backup_Path = "/super";
 	superPartition->Mount_Point = "/super";
-	superPartition->Actual_Block_Device = superPart;
-	superPartition->Alternate_Block_Device = superPart;
+	superPartition->Set_Block_Device(superPart);
 	superPartition->Backup_Display_Name = "Super (";
 	// Add first 4 items to fstab as logical that you would like to display in Backup_Display_Name
 	// for the Super partition
@@ -3688,6 +3757,8 @@ void TWPartitionManager::Setup_Super_Partition() {
 	superPartition->Is_Present = true;
 	superPartition->Is_SubPartition = false;
 	superPartition->Setup_Image();
+	if (!superPartition->Update_Size(false))
+		LOGERR("Unable to determine Super partition size from %s\n", superPart.c_str());
 	Add_Partition(superPartition);
 	PartitionManager.Output_Partition(superPartition);
 }
@@ -3819,14 +3890,12 @@ bool TWPartitionManager::Unmap_Super_Devices() {
 
 
 bool TWPartitionManager::Check_Pending_Merges() {
-	auto sm = android::snapshot::SnapshotManager::NewForFirstStageMount();
+	// This runs from recovery, not first-stage init. Match AOSP recovery's
+	// FinishPendingSnapshotMerges() path so SnapshotManager uses the recovery
+	// device environment while preparing /metadata and handling a data wipe.
+	auto sm = android::snapshot::SnapshotManager::New();
 	if (!sm) {
 		LOGERR("Unable to call snapshot manager\n");
-		return false;
-	}
-
-	if (!Unmap_Super_Devices()) {
-		LOGERR("Unable to unmap dynamic partitions.\n");
 		return false;
 	}
 

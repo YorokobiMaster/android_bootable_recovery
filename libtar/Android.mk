@@ -14,23 +14,13 @@ LOCAL_C_INCLUDES += external/libselinux/include
 LOCAL_SHARED_LIBRARIES += libselinux
 
 ifeq ($(TW_INCLUDE_CRYPTO_FBE), true)
-    LOCAL_STATIC_LIBRARIES += libvold libscrypt_static libasync_safe
+    LOCAL_STATIC_LIBRARIES += libvold libsqlite_static_twrp_keystore libscrypt_static libasync_safe
     LOCAL_SHARED_LIBRARIES +=  \
+        android.hardware.gatekeeper-V1-ndk-twrp-a15 \
+        android.hardware.security.keymint-V3-ndk-twrp-a15 \
         android.hardware.boot@1.0 \
         android.hardware.boot-V1-ndk \
-        android.hardware.confirmationui@1.0 \
-        lib_android_keymaster_keymint_utils \
-        android.hardware.gatekeeper-V1-ndk \
-        android.hardware.gatekeeper@1.0 \
-        android.hardware.keymaster@3.0 \
-        android.hardware.keymaster@4.0 \
-        android.hardware.keymaster@4.1 \
-        android.hardware.weaver@1.0 \
         android.hardware.weaver-V2-ndk \
-        android.security.apc-ndk \
-        android.system.keystore2-V4-ndk \
-        android.security.authorization-ndk \
-        android.security.maintenance-ndk \
         libselinux \
         libbinder_ndk \
         libboot_control_client \
@@ -40,9 +30,8 @@ ifeq ($(TW_INCLUDE_CRYPTO_FBE), true)
         libcutils \
         libf2fs_sparseblock \
         libkeymaster_messages \
-        libkeymint_support \
-        libkeystoreinfo \
-        libkeystore-attestation-application-id \
+        lib_android_keymaster_keymint_utils-twrp-a15 \
+        libkeymint_support-twrp-a15 \
         libhardware \
         libprotobuf-cpp-lite \
         libfscrypt \
@@ -50,12 +39,9 @@ ifeq ($(TW_INCLUDE_CRYPTO_FBE), true)
         libutils \
         libbinder \
         libfs_mgr \
-        libkeymaster4support \
-        libkeymaster4_1support \
         libf2fs_sparseblock \
         libkeyutils \
         liblog \
-        libhwbinder \
         libchrome \
         libbootloader_message \
         libgatekeeper_aidl \

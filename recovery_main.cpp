@@ -137,7 +137,9 @@ static std::vector<std::string> get_args(const int argc, char** const argv, std:
         // Skip empty and '\0'-filled tokens.
         if (!it->empty() && (*it)[0] != '\0') args.push_back(std::move(*it));
       }
-      LOG(INFO) << "Got " << args.size() << " arguments from boot message " << android::base::Join(args, ", ");
+      const std::vector<std::string>& logged_args = args;
+      LOG(INFO) << "Got " << args.size() << " arguments from boot message "
+                << android::base::Join(logged_args, std::string(", "));
     } else if (boot.recovery[0] != 0) {
       LOG(ERROR) << "Bad boot message: \"" << boot_recovery << "\"";
     }

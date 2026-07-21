@@ -606,7 +606,8 @@ static void log_failure_code(ErrorCode code, const std::string& update_package) 
     "0",  // install result
     "error: " + std::to_string(code),
   };
-  std::string log_content = android::base::Join(log_buffer, "\n");
+  const std::vector<std::string>& log_buffer_view = log_buffer;
+  std::string log_content = android::base::Join(log_buffer_view, std::string("\n"));
   const std::string& install_file = Paths::Get().temporary_install_file();
   if (!android::base::WriteStringToFile(log_content, install_file)) {
     PLOG(ERROR) << "Failed to write " << install_file;

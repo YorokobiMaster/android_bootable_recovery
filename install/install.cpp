@@ -698,8 +698,10 @@ InstallResult InstallPackage(Package* package, const std::string_view package_id
     log_buffer.push_back("temperature_max: " + std::to_string(max_temperature));
   }
 
-  std::string log_content =
-      android::base::Join(log_header, "\n") + "\n" + android::base::Join(log_buffer, "\n") + "\n";
+  const std::vector<std::string>& log_header_view = log_header;
+  const std::vector<std::string>& log_buffer_view = log_buffer;
+  std::string log_content = android::base::Join(log_header_view, std::string("\n")) + "\n" +
+                            android::base::Join(log_buffer_view, std::string("\n")) + "\n";
   const std::string& install_file = Paths::Get().temporary_install_file();
   if (!android::base::WriteStringToFile(log_content, install_file)) {
     PLOG(ERROR) << "failed to write " << install_file;

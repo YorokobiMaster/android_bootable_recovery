@@ -286,7 +286,9 @@ void inline Process_Keymaster_Version(TWPartition *ven, bool Display_Error) {
 		*/
 	if (version.empty()) {
 		// unmount partition(s)
+	#if !defined(USE_VENDOR_LIBS) && !defined(TW_KEEP_VENDOR_MOUNTED)
 		if (ven) ven->UnMount(Display_Error);
+	#endif
 
 		// Use keymaster_ver prop set from device tree (if exists)
 		version = android::base::GetProperty(TW_KEYMASTER_VERSION_PROP, version);
@@ -297,10 +299,14 @@ void inline Process_Keymaster_Version(TWPartition *ven, bool Display_Error) {
 			LOGINFO("Keymaster_Ver::Unable to find vendor manifest on the device. Setting to default value.\n");
 		}
 	} else {
+	#if !defined(USE_VENDOR_LIBS) && !defined(TW_KEEP_VENDOR_MOUNTED)
 		if (ven) ven->UnMount(Display_Error);
+	#endif
 	}
 #else
+	#if !defined(USE_VENDOR_LIBS) && !defined(TW_KEEP_VENDOR_MOUNTED)
 	if (ven) ven->UnMount(Display_Error);
+	#endif
 
 	version = android::base::GetProperty(TW_KEYMASTER_VERSION_PROP, version);
 	if (version.empty()) {
@@ -494,7 +500,7 @@ clear:
 #endif
 	if (recovery_mode)
 		Process_Keymaster_Version(ven, false);
-#ifndef TW_KEEP_VENDOR_MOUNTED
+#if !defined(USE_VENDOR_LIBS) && !defined(TW_KEEP_VENDOR_MOUNTED)
 	if (ven) ven->UnMount(Display_Error);
 #else
 	if (ven)
@@ -553,9 +559,11 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 	#endif
 			}
 		}
-	#ifndef USE_VENDOR_LIBS
+	#if !defined(USE_VENDOR_LIBS) && !defined(TW_KEEP_VENDOR_MOUNTED)
 		if (ven)
 			ven->UnMount(Display_Error);
+	#endif
+	#ifndef USE_VENDOR_LIBS
 		if (sys)
 			sys->UnMount(Display_Error);
 	#endif
@@ -2498,7 +2506,7 @@ void TWPartitionManager::UnMount_Main_Partitions(void) {
 
 	TWPartition *Partition = Find_Partition_By_Path ("/vendor");
 
-#ifndef TW_KEEP_VENDOR_MOUNTED
+#if !defined(USE_VENDOR_LIBS) && !defined(TW_KEEP_VENDOR_MOUNTED)
 	if (Partition != NULL) UnMount_By_Path("/vendor", false);
 #else
 	if (Partition != NULL && Partition->Is_Mounted())

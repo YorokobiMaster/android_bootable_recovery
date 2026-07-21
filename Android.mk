@@ -382,6 +382,7 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
 endif
 ifeq ($(TW_USE_DMCTL), true)
     LOCAL_CFLAGS += -DTW_USE_DMCTL
+    LOCAL_STATIC_LIBRARIES += libdm
     TWRP_REQUIRED_MODULES += \
         dmctl \
         dmuserd

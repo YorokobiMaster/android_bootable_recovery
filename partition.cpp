@@ -35,6 +35,9 @@
 #include <sstream>
 #include <android-base/properties.h>
 #include <android-base/strings.h>
+#ifdef TW_USE_DMCTL
+#include <libdm/dm.h>
+#endif
 #include <libsnapshot/snapshot.h>
 
 #include "cutils/properties.h"
@@ -2613,7 +2616,7 @@ bool TWPartition::Wipe_F2FS() {
 	#ifdef TW_USE_DMCTL
 	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
 		LOGINFO("TWRP: removing userdata device-mapper target before formatting...\n");
-		if (TWFunc::Exec_Cmd("dmctl delete userdata", false) != 0) {
+		if (!android::dm::DeviceMapper::Instance().DeleteDevice("userdata")) {
 			LOGERR("Unable to remove userdata device-mapper target, refusing to format data.\n");
 			return false;
 		}

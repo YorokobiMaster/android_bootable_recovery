@@ -339,6 +339,11 @@ static void reboot() {
 }
 
 int main(int argc, char **argv) {
+	// init may give recovery a private compatibility runtime.  The dynamic
+	// linker has already loaded this process' DT_NEEDED closure before main(),
+	// so do not leak that search path to filesystem tools or child services.
+	unsetenv("LD_LIBRARY_PATH");
+
 	// Recovery needs to install world-readable files, so clear umask
 	// set by init
 	umask(0);

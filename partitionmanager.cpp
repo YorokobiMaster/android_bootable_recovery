@@ -2498,7 +2498,12 @@ void TWPartitionManager::UnMount_Main_Partitions(void) {
 
 	TWPartition *Partition = Find_Partition_By_Path ("/vendor");
 
+#ifndef TW_KEEP_VENDOR_MOUNTED
 	if (Partition != NULL) UnMount_By_Path("/vendor", false);
+#else
+	if (Partition != NULL && Partition->Is_Mounted())
+		LOGINFO("Keeping vendor mounted for recovery runtime services\n");
+#endif
 	UnMount_By_Path (Get_Android_Root_Path(), true);
 	Partition = Find_Partition_By_Path ("/product");
 	if (Partition != NULL) UnMount_By_Path("/product", false);

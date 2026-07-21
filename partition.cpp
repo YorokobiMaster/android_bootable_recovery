@@ -2612,9 +2612,21 @@ bool TWPartition::Wipe_F2FS() {
 
 	#ifdef TW_USE_DMCTL
 	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
-		LOGINFO("TWRP: running dmctl before formatting...\n");
-		TWFunc::Exec_Cmd("dmctl delete userdata", false);
-		usleep(32768);
+		LOGINFO("TWRP: removing userdata device-mapper target before formatting...\n");
+		if (TWFunc::Exec_Cmd("dmctl delete userdata", false) != 0) {
+			LOGERR("Unable to remove userdata device-mapper target, refusing to format data.\n");
+			return false;
+		}
+
+		// dmctl returning success does not guarantee that ueventd has removed the
+		// mapper node yet.  Do not race make_f2fs against the raw block device.
+		for (int retry = 0; retry < 100 && TWFunc::Path_Exists("/dev/block/mapper/userdata"); retry++)
+			usleep(50000);
+		if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
+			LOGERR("Userdata device-mapper target is still present, refusing to format data.\n");
+			return false;
+		}
+		LOGINFO("TWRP: userdata device-mapper target removed.\n");
 	}
 	#endif
 

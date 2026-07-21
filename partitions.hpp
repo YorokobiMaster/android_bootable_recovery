@@ -343,7 +343,6 @@ public:
 	void Set_Restore_Files(string Restore_Name);                              // Used to gather a list of available backup partitions for the user to select for a restore
 	int Wipe_By_Path(string Path);                                            // Wipes a partition based on path
 	int Wipe_By_Path(string Path, string New_File_System);                    // Wipes a partition based on path
-	bool Wipe_Encryption_Key_Directory(const string& Path);                   // Removes only the FBE metadata key directory, never its containing partition
 	int Factory_Reset();                                                      // Performs a factory reset
 	int Wipe_Dalvik_Cache();                                                  // Wipes dalvik cache
 	int Wipe_Rotate_Data();                                                   // Wipes rotation data --

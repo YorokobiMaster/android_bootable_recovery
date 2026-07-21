@@ -2242,7 +2242,7 @@ bool TWPartition::Wipe_Encryption() {
 
 		ret = true;
 		if (!Key_Directory.empty())
-			ret = PartitionManager.Wipe_Encryption_Key_Directory(Key_Directory);
+			ret = PartitionManager.Wipe_By_Path(Key_Directory);
 		if (ret)
 			ret = base_partition->PostWipeEncryption();
 		goto exit;

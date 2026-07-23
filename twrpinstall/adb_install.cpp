@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/mount.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -29,6 +30,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <utility>
@@ -38,6 +40,7 @@
 #include <android-base/logging.h>
 #include <android-base/memory.h>
 #include <android-base/properties.h>
+#include <android-base/scopeguard.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
@@ -55,15 +58,72 @@
 // always be sent to the minadbd side.
 using CommandFunction = std::function<std::pair<bool, bool>()>;
 
-pid_t child;
+using namespace std::chrono_literals;
 
-pid_t GetMiniAdbdPid() {
-  return child;
+static std::atomic<pid_t> minadbd_pid(0);
+static std::atomic<bool> sideload_cancel_requested(false);
+static std::atomic<bool> sideload_prepared(false);
+
+void PrepareSideload() {
+  sideload_cancel_requested.store(false, std::memory_order_release);
+  sideload_prepared.store(true, std::memory_order_release);
 }
 
-static bool SetUsbConfig(const std::string& state) {
-  android::base::SetProperty("sys.usb.config", state);
-  return android::base::WaitForProperty("sys.usb.state", state);
+bool CancelSideload() {
+  sideload_cancel_requested.store(true, std::memory_order_release);
+
+  pid_t pid = minadbd_pid.load(std::memory_order_acquire);
+  if (pid > 0 && kill(pid, SIGKILL) == -1 && errno != ESRCH) {
+    PLOG(ERROR) << "Failed to kill minadbd " << pid;
+  }
+
+  // Do not stat FUSE_SIDELOAD_HOST_EXIT_PATHNAME here. A lookup is serviced by
+  // the daemon that may be stuck, so using it as the cancellation primitive can
+  // deadlock the cancel thread. Detaching is local to the kernel and makes any
+  // outstanding package reads fail promptly after minadbd is killed.
+  if (umount2(FUSE_SIDELOAD_HOST_MOUNTPOINT, MNT_DETACH) == -1 && errno != EINVAL &&
+      errno != ENOENT) {
+    PLOG(WARNING) << "Failed to detach sideload FUSE mount";
+  }
+  return true;
+}
+
+static bool SetUsbConfig(const std::string& state, bool cancelable = false) {
+  if (!android::base::SetProperty("sys.usb.config", state)) {
+    LOG(ERROR) << "Failed to request USB config " << state;
+    return false;
+  }
+
+  // A broken or incomplete vendor USB init path must not wedge recovery
+  // forever. Polling also gives the cancel button a chance to abort setup.
+  constexpr int kUsbConfigPollCount = 80;
+  for (int i = 0; i < kUsbConfigPollCount; ++i) {
+    if (android::base::WaitForProperty("sys.usb.state", state, 250ms)) {
+      return true;
+    }
+    if (cancelable && sideload_cancel_requested.load(std::memory_order_acquire)) {
+      return false;
+    }
+  }
+  LOG(ERROR) << "Timed out waiting for USB config " << state;
+  return false;
+}
+
+static int ReapMinadbd(pid_t pid) {
+  pid_t expected = pid;
+  minadbd_pid.compare_exchange_strong(expected, 0, std::memory_order_acq_rel);
+
+  int status = 0;
+  pid_t waited;
+  do {
+    waited = waitpid(pid, &status, 0);
+  } while (waited == -1 && errno == EINTR);
+
+  if (waited == -1) {
+    PLOG(ERROR) << "Failed to wait for minadbd " << pid;
+    return -1;
+  }
+  return status;
 }
 
 // Parses the minadbd command in |message|; returns MinadbdCommand::kError upon errors.
@@ -97,7 +157,7 @@ static bool WriteStatusToFd(MinadbdCommandStatus status, int fd) {
 
 // Installs the package from FUSE. Returns the installation result and whether it should continue
 // waiting for new commands.
-static auto AdbInstallPackageHandler(int* result) {
+static auto AdbInstallPackageHandler(int* result, int* wipe_cache) {
   // How long (in seconds) we wait for the package path to be ready. It doesn't need to be too long
   // because the minadbd service has already issued an install command. FUSE_SIDELOAD_HOST_PATHNAME
   // will start to exist once the host connects and starts serving a package. Poll for its
@@ -117,8 +177,7 @@ static auto AdbInstallPackageHandler(int* result) {
         break;
       }
     }
-    int dummy;
-    *result = TWinstall_zip(FUSE_SIDELOAD_HOST_PATHNAME, &dummy);
+    *result = TWinstall_zip(FUSE_SIDELOAD_HOST_PATHNAME, wipe_cache);
     break;
   }
 
@@ -279,6 +338,7 @@ static void CreateMinadbdServiceAndExecuteCommands(
     const std::map<MinadbdCommand, CommandFunction>& command_map,
     bool rescue_mode __unused, std::string install_file __unused) {
   signal(SIGPIPE, SIG_IGN);
+  auto restore_sigpipe = android::base::make_scope_guard([] { signal(SIGPIPE, SIG_DFL); });
 
   android::base::unique_fd recovery_socket;
   android::base::unique_fd minadbd_socket;
@@ -287,7 +347,7 @@ static void CreateMinadbdServiceAndExecuteCommands(
     return;
   }
 
-  child = fork();
+  pid_t child = fork();
   if (child == -1) {
     PLOG(ERROR) << "Failed to fork child process";
     return;
@@ -308,11 +368,20 @@ static void CreateMinadbdServiceAndExecuteCommands(
   }
 
   minadbd_socket.reset();
+  minadbd_pid.store(child, std::memory_order_release);
+
+  if (sideload_cancel_requested.load(std::memory_order_acquire)) {
+    kill(child, SIGKILL);
+    ReapMinadbd(child);
+    return;
+  }
 
   // We need to call SetUsbConfig() after forking minadbd service. Because the function waits for
   // the usb state to be updated, which depends on sys.usb.ffs.ready=1 set in the adb daemon.
-  if (!SetUsbConfig("sideload")) {
+  if (!SetUsbConfig("sideload", true)) {
     LOG(ERROR) << "Failed to set usb config to sideload";
+    kill(child, SIGKILL);
+    ReapMinadbd(child);
     return;
   }
 
@@ -322,20 +391,36 @@ static void CreateMinadbdServiceAndExecuteCommands(
     listener_thread.join();
   }
 
-  int status;
-  waitpid(child, &status, 0);
-  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+  int status = ReapMinadbd(child);
+  if (status == -1) {
+    return;
+  }
+  if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
     if (WEXITSTATUS(status) == MinadbdErrorCode::kMinadbdAdbVersionError) {
       LOG(ERROR) << "\nYou need adb 1.0.32 or newer to sideload\nto this device.\n";
-    } else if (!WIFSIGNALED(status)) {
+    } else {
       LOG(ERROR) << "\n(adbd status " << WEXITSTATUS(status) << ")";
     }
+  } else if (WIFSIGNALED(status) &&
+             !sideload_cancel_requested.load(std::memory_order_acquire)) {
+    LOG(ERROR) << "minadbd terminated by signal " << WTERMSIG(status);
   }
-
-  signal(SIGPIPE, SIG_DFL);
 }
 
-  int twrp_sideload(const char* install_file, Device::BuiltinAction* reboot_action) {
+  int twrp_sideload(const char* install_file, Device::BuiltinAction* reboot_action, int* wipe_cache) {
+
+  // GUI callers prepare before disabling MTP, so a cancellation during that
+  // setup window is retained. Non-GUI callers get a fresh state here.
+  if (!sideload_prepared.exchange(false, std::memory_order_acq_rel)) {
+    sideload_cancel_requested.store(false, std::memory_order_release);
+  }
+  if (minadbd_pid.load(std::memory_order_acquire) != 0) {
+    LOG(ERROR) << "A minadbd sideload process is already active";
+    return INSTALL_ERROR;
+  }
+  if (wipe_cache != nullptr) {
+    *wipe_cache = 0;
+  }
 
   // Save the usb state to restore after the sideload operation.
   std::string usb_state = android::base::GetProperty("sys.usb.state", "none");
@@ -346,8 +431,10 @@ static void CreateMinadbdServiceAndExecuteCommands(
   }
 
   int install_result = INSTALL_ERROR;
+  int requested_wipe_cache = 0;
   std::map<MinadbdCommand, CommandFunction> command_map{
-  { MinadbdCommand::kInstall, std::bind(&AdbInstallPackageHandler, &install_result) },
+  { MinadbdCommand::kInstall,
+    std::bind(&AdbInstallPackageHandler, &install_result, &requested_wipe_cache) },
   { MinadbdCommand::kRebootAndroid, std::bind(&AdbRebootHandler, MinadbdCommand::kRebootAndroid,
                                               &install_result, reboot_action) },
   { MinadbdCommand::kRebootBootloader,
@@ -362,6 +449,10 @@ static void CreateMinadbdServiceAndExecuteCommands(
 };
 
   CreateMinadbdServiceAndExecuteCommands(command_map, false, install_file);
+
+  if (wipe_cache != nullptr) {
+    *wipe_cache = requested_wipe_cache;
+  }
 
   // Clean up before switching to the older state, for example setting the state
   // to none sets sys/class/android_usb/android0/enable to 0.

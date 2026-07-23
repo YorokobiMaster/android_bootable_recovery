@@ -2614,7 +2614,7 @@ bool TWPartition::Wipe_F2FS() {
 	LOGINFO("make_f2fs command: %s\n", f2fs_command.c_str());
 
 	#ifdef TW_USE_DMCTL
-	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
+	if (Mount_Point == "/data" && TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
 		LOGINFO("TWRP: removing userdata device-mapper target before formatting...\n");
 		if (!android::dm::DeviceMapper::Instance().DeleteDevice("userdata")) {
 			LOGERR("Unable to remove userdata device-mapper target, refusing to format data.\n");

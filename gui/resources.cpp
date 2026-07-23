@@ -329,7 +329,10 @@ std::string ResourceManager::FindString(const std::string& name, const std::stri
 		std::map<std::string, string_resource_struct>::const_iterator it = mStrings.find(name);
 		if (it != mStrings.end())
 			return it->second.value;
-		LOGERR("String resource '%s' not found. Using default value.\n", name.c_str());
+		// Callers using this overload supplied a complete fallback. A missing
+		// translation is worth recording, but it is not an operation failure and
+		// must not paint a successful flash red in the GUI console.
+		LOGINFO("String resource '%s' not found. Using default value.\n", name.c_str());
 		PageManager::AddStringResource("DEFAULT", name, default_string);
 	/*} else {
 		LOGINFO("String resources not loaded when looking for '%s'. Using default value.\n", name.c_str());

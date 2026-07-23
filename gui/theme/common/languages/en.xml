@@ -772,6 +772,10 @@
 		<string name="restore_with_pattern1">Pattern is enabled</string>
 		<string name="restore_with_pattern2">Pattern should be disabled before restore</string>
 		<string name="reboot_after_restore">It is recommended to reboot Android once after first boot.</string>
+		<string name="readonly_decrypt_user0_only">This recovery build only permits read-only decryption of user 0.</string>
+		<string name="readonly_decrypt_state_refresh_failed">Decrypt succeeded, but TWRP state refresh was incomplete.</string>
+		<string name="readonly_decrypt_repeat_blocked">The one allowed decrypt attempt has already been used. Restart recovery before trying again.</string>
+		<string name="zip_compatible_err">Zip Treble compatibility error!</string>
 		<string name="install_took_seconds_msg">Install took {1} second(s).</string>
 		<string name="auto_disable_avb2">Automatically disable AVB2.0 after flashing ROM</string>
 		<string name="disable_avb2">Disable AVB2.0</string>

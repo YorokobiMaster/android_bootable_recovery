@@ -35,7 +35,6 @@
 #include <iterator>
 #include <algorithm>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <zlib.h>
 
 #include "twrp-functions.hpp"
@@ -46,7 +45,6 @@
 #include "variables.h"
 #include "install/adb_install.h"
 #include "data.hpp"
-#include "fuse_sideload.h"
 #include "gui/gui.hpp"
 #include "gui/pages.hpp"
 #include "orscmd/orscmd.h"
@@ -381,37 +379,23 @@ int OpenRecoveryScript::run_script_file(void) {
 				install_cmd = -1;
 
 				int wipe_cache = 0;
-				string result;
 
 				gui_msg("start_sideload=Starting ADB sideload feature...");
 
 				Device::BuiltinAction reboot_action = Device::REBOOT_BOOTLOADER;
-				ret_val = twrp_sideload("/", &reboot_action);
+				PrepareSideload();
+				ret_val = twrp_sideload("/", &reboot_action, &wipe_cache);
 				if (ret_val != 0) {
 					if (ret_val == -2)
 						gui_err("need_new_adb=You need adb 1.0.32 or newer to sideload to this device.");
 					ret_val = 1; // failure
-				} else if (TWinstall_zip(FUSE_SIDELOAD_HOST_PATHNAME, &wipe_cache) == 0) {
+				} else {
 					if (wipe_cache)
 						PartitionManager.Wipe_By_Path("/cache");
-				} else {
-					ret_val = 1; // failure
 				}
 				PartitionManager.Unlock_Block_Partitions();
 				PartitionManager.Update_System_Details();
 				sideload = 1; // Causes device to go to the home screen afterwards
-				pid_t sideload_child_pid = GetMiniAdbdPid();
-				if (sideload_child_pid != 0) {
-					LOGINFO("Signaling child sideload process to exit.\n");
-					struct stat st;
-					// Calling stat() on this magic filename signals the minadbd
-					// subprocess to shut down.
-					stat(FUSE_SIDELOAD_HOST_EXIT_PATHNAME, &st);
-					int status;
-					LOGINFO("Waiting for child sideload process to exit.\n");
-					waitpid(sideload_child_pid, &status, 0);
-				}
-				property_set("ctl.start", "adbd");
 				gui_msg("done=Done.");
 			} else if (strcmp(command, "fixperms") == 0 || strcmp(command, "fixpermissions") == 0 || strcmp(command, "fixcontexts") == 0) {
 				ret_val = PartitionManager.Fix_Contexts();

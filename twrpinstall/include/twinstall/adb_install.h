@@ -21,5 +21,11 @@
 // Applies a package via `adb sideload` or `adb rescue`. Returns the install result (in `enum
 // InstallResult`). When a reboot has been requested, INSTALL_REBOOT will be the return value, with
 // the reboot target set in reboot_action.
-int twrp_sideload(const char* install_file, Device::BuiltinAction* reboot_action);
-pid_t GetMiniAdbdPid();
+int twrp_sideload(const char* install_file, Device::BuiltinAction* reboot_action, int* wipe_cache);
+
+// Reset cancellation state before doing any potentially blocking sideload setup.
+void PrepareSideload();
+
+// Requests cancellation without waiting on the FUSE daemon. Returns true when
+// a request was recorded; the thread running twrp_sideload() owns child reaping.
+bool CancelSideload();

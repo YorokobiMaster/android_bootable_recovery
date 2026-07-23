@@ -110,14 +110,17 @@ static bool SetUsbConfig(const std::string& state, bool cancelable = false) {
 }
 
 static int ReapMinadbd(pid_t pid) {
-  pid_t expected = pid;
-  minadbd_pid.compare_exchange_strong(expected, 0, std::memory_order_acq_rel);
-
   int status = 0;
   pid_t waited;
   do {
     waited = waitpid(pid, &status, 0);
   } while (waited == -1 && errno == EINTR);
+
+  // Keep the PID published until waitpid() completes. This prevents another
+  // sideload from starting while the previous minadbd is still a child owned
+  // by this recovery process.
+  pid_t expected = pid;
+  minadbd_pid.compare_exchange_strong(expected, 0, std::memory_order_acq_rel);
 
   if (waited == -1) {
     PLOG(ERROR) << "Failed to wait for minadbd " << pid;

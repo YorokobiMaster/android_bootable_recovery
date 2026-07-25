@@ -2287,7 +2287,9 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 			return -1;
 		}
 		std::string readonly_status;
-		if (android::vold::Decrypt_User0_ReadOnly(Password, &readonly_status)) {
+		uint64_t retry_timeout_ms = 0;
+		if (android::vold::Decrypt_User0_ReadOnly(
+				Password, &readonly_status, &retry_timeout_ms)) {
 			gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")(user_id));
 			bool mtp_refresh_failed = false;
 			if (!Refresh_User0_ReadOnly_Decrypt_State(&mtp_refresh_failed)) {
@@ -2296,9 +2298,15 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 			}
 			return 0;
 		} else {
-			if (readonly_status == "blocked-repeat")
-				gui_msg(Msg(msg::kWarning, "readonly_decrypt_repeat_blocked=The one allowed decrypt attempt has already been used. Restart recovery before trying again."));
-			gui_msg(Msg(msg::kError, "decrypt_user_fail_fbe=Failed to decrypt user {1}")(user_id));
+			if (readonly_status == "busy") {
+				gui_msg(Msg(msg::kWarning, "readonly_decrypt_busy=Another decrypt attempt is already in progress."));
+			} else if (readonly_status == "throttled") {
+				const uint64_t retry_timeout_seconds =
+					(retry_timeout_ms + 999) / 1000;
+				gui_msg(Msg(msg::kWarning, "readonly_decrypt_throttled=Credential hardware requires waiting {1} seconds before retrying.")(retry_timeout_seconds));
+			} else {
+				gui_msg(Msg(msg::kError, "decrypt_user_fail_fbe=Failed to decrypt user {1}")(user_id));
+			}
 		}
 #else
 		LOGERR("FBE support is not present\n");

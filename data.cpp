@@ -779,6 +779,12 @@ void DataManager::SetDefaultValues()
 #else
 	mConst.SetValue("tw_no_flash_current_twrp", "0");
 #endif
+#ifdef TW_HIDE_LEGACY_ADVANCED
+	LOGINFO("TW_SHOW_LEGACY_ADVANCED := false\n");
+	mConst.SetValue("tw_show_legacy_advanced", "0");
+#else
+	mConst.SetValue("tw_show_legacy_advanced", "1");
+#endif
 	mPersist.SetValue(TW_AUTO_DISABLE_AVB2_VAR, "0");
 	mData.SetValue(TW_ACTION_BUSY, "0");
 	mData.SetValue("tw_wipe_cache", "0");

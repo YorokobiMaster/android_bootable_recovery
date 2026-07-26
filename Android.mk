@@ -256,6 +256,9 @@ endif
 ifeq ($(TW_NO_REBOOT_RECOVERY), true)
     LOCAL_CFLAGS += -DTW_NO_REBOOT_RECOVERY
 endif
+ifeq ($(TW_NO_REBOOT_FASTBOOT), true)
+    LOCAL_CFLAGS += -DTW_NO_REBOOT_FASTBOOT
+endif
 ifeq ($(TW_NO_BATT_PERCENT), true)
     LOCAL_CFLAGS += -DTW_NO_BATT_PERCENT
 endif

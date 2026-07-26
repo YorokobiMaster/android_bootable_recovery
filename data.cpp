@@ -724,14 +724,26 @@ void DataManager::SetDefaultValues()
 #endif
 #ifdef TW_INCLUDE_FASTBOOTD
 	printf("TW_INCLUDE_FASTBOOTD := true\n");
+#ifndef TW_NO_REBOOT_FASTBOOT
 	mConst.SetValue(TW_FASTBOOT_MODE, "1");
+#endif
 #endif
 #ifdef PRODUCT_USE_DYNAMIC_PARTITIONS
 	printf("PRODUCT_USE_DYNAMIC_PARTITIONS := true\n");
+#ifndef TW_NO_REBOOT_FASTBOOT
 	mConst.SetValue(TW_FASTBOOT_MODE, "1");
+#endif
 	mConst.SetValue(TW_IS_SUPER, "1");
 #else
 	mConst.SetValue(TW_IS_SUPER, "0");
+#endif
+#ifdef TW_NO_REBOOT_FASTBOOT
+	// InfoManager refuses to overwrite existing const keys, so a trailing
+	// override would be silently dropped: the two blocks above must skip
+	// their forced "1" and leave this as the only write. Hides the fastbootd
+	// reboot entry on devices where only bootloader fastboot works.
+	printf("TW_NO_REBOOT_FASTBOOT := true\n");
+	mConst.SetValue(TW_FASTBOOT_MODE, "0");
 #endif
 #ifdef TW_INCLUDE_CRYPTO
 	mConst.SetValue(TW_HAS_CRYPTO, "1");

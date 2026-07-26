@@ -3276,7 +3276,7 @@ void TWPartitionManager::Translate_Partition_Display_Names() {
 	Translate_Partition("/system_image", "system_image", "System Image");
 	Translate_Partition("/vendor", "vendor", "Vendor");
 	Translate_Partition("/vendor_image", "vendor_image", "Vendor Image");
-	Translate_Partition("/cache", "cache", "Cache");
+	Translate_Partition("/cache", "rescue", "Cache (Rescue)");
 	Translate_Partition("/boot", "boot", "Boot");
 	Translate_Partition("/recovery", "recovery", "Recovery");
 	if (!datamedia) {

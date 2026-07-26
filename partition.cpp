@@ -1264,13 +1264,28 @@ void TWPartition::Setup_Data_Media() {
 	LOGINFO("Setting up '%s' as data/media emulated storage.\n", Mount_Point.c_str());
 	if (Storage_Name.empty() || Storage_Name == "Data")
 		Storage_Name = "Internal Storage";
+#ifdef TW_INTERNAL_STORAGE_MOUNT_POINT
+	const string configured_storage_path = EXPAND(TW_INTERNAL_STORAGE_MOUNT_POINT);
+#else
+	const string configured_storage_path;
+#endif
+	const bool direct_internal_storage =
+		Mount_Point == "/data" && configured_storage_path == "/data/media/0";
 	Has_Data_Media = true;
 	Is_Storage = true;
 	Storage_Path = Mount_Point + "/media";
 	Symlink_Path = Storage_Path;
 	if (Mount_Point == "/data") {
 		Is_Settings_Storage = true;
-		if (strcmp(EXPAND(TW_EXTERNAL_STORAGE_PATH), "/sdcard") == 0) {
+		if (direct_internal_storage) {
+			// In-place storage has no compatibility bind mount.  Set the
+			// final path once so callers that create /data/media can use it
+			// even when user 0 has not been created yet.
+			Storage_Path = configured_storage_path;
+			Symlink_Path = Storage_Path;
+			Symlink_Mount_Point.clear();
+			DataManager::SetValue(TW_INTERNAL_PATH, Storage_Path);
+		} else if (strcmp(EXPAND(TW_EXTERNAL_STORAGE_PATH), "/sdcard") == 0) {
 			Make_Dir("/emmc", false);
 			Symlink_Mount_Point = "/emmc";
 		} else {
@@ -1734,6 +1749,8 @@ bool TWPartition::Mount(bool Display_Error) {
 }
 
 bool TWPartition::Bind_Mount(bool Display_Error) {
+	if (Symlink_Mount_Point.empty() || Symlink_Path.empty())
+		return true;
 	if (TWFunc::Path_Exists(Symlink_Path)) {
 		if (mount(Symlink_Path.c_str(), Symlink_Mount_Point.c_str(), "", MS_BIND, NULL) < 0) {
 			return false;
@@ -2237,7 +2254,7 @@ bool TWPartition::Wipe_Encryption() {
 		if (Is_FBE) {
 			gui_msg(Msg(msg::kWarning, "data_media_fbe_msg=TWRP will not recreate /data/media on an FBE device. Please reboot into your rom to create /data/media."));
 		} else {
-			if (Has_Data_Media && !Symlink_Mount_Point.empty()) {
+			if (Has_Data_Media) {
 				if (Mount(false))
 					PartitionManager.Add_MTP_Storage(MTP_Storage_ID);
 			}
@@ -3312,12 +3329,18 @@ void TWPartition::Recreate_Media_Folder(void) {
 	}
 	if (!Mount(true)) {
 		gui_msg(Msg(msg::kError, "recreate_folder_err=Unable to recreate {1} folder.")(Media_Path));
-	} else if (!TWFunc::Path_Exists(Media_Path)) {
-		PartitionManager.Mount_By_Path(Symlink_Mount_Point, true);
-		LOGINFO("Recreating %s folder.\n", Media_Path.c_str());
-		mkdir(Media_Path.c_str(), 0770);
+	} else {
 		string Internal_path = DataManager::GetStrValue("tw_internal_path");
-		if (!Internal_path.empty()) {
+		bool media_missing = !TWFunc::Path_Exists(Media_Path);
+		bool internal_missing = !Internal_path.empty() && !TWFunc::Path_Exists(Internal_path);
+		if (!media_missing && !internal_missing)
+			return;
+
+		if (media_missing) {
+			LOGINFO("Recreating %s folder.\n", Media_Path.c_str());
+			mkdir(Media_Path.c_str(), 0770);
+		}
+		if (internal_missing) {
 			LOGINFO("Recreating %s folder.\n", Internal_path.c_str());
 			mkdir(Internal_path.c_str(), 0770);
 		}
@@ -3328,13 +3351,17 @@ void TWPartition::Recreate_Media_Folder(void) {
 		// Afterwards, we will try to set the
 		// default metadata that we were hopefully able to get during
 		// early boot.
-		tw_set_default_metadata(Media_Path.c_str());
-		if (!Internal_path.empty())
+		if (media_missing)
+			tw_set_default_metadata(Media_Path.c_str());
+		if (internal_missing)
 			tw_set_default_metadata(Internal_path.c_str());
 
-		// Toggle mount to ensure that "internal sdcard" gets mounted
-		PartitionManager.UnMount_By_Path(Symlink_Mount_Point, true);
-		PartitionManager.Mount_By_Path(Symlink_Mount_Point, true);
+		// A direct /data/media/0 path needs no alias mount.  Retain the
+		// legacy toggle only for devices that still expose one.
+		if (!Symlink_Mount_Point.empty()) {
+			PartitionManager.UnMount_By_Path(Symlink_Mount_Point, true);
+			PartitionManager.Mount_By_Path(Symlink_Mount_Point, true);
+		}
 	}
 }
 
@@ -3662,9 +3689,14 @@ void TWPartition::Revert_Adopted() {
 			TWPartition* Dat = PartitionManager.Find_Partition_By_Path("/data");
 			if (Dat) {
 				Dat->UnMount(false);
+#ifdef TW_INTERNAL_STORAGE_MOUNT_POINT
+				if (strcmp(EXPAND(TW_INTERNAL_STORAGE_MOUNT_POINT), "/data/media/0") != 0)
+					Dat->Symlink_Mount_Point = Symlink_Mount_Point;
+#else
 				Dat->Symlink_Mount_Point = Symlink_Mount_Point;
+#endif
 			}
-			Symlink_Mount_Point = "";
+			Symlink_Mount_Point.clear();
 		}
 	}
 #else

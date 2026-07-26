@@ -416,7 +416,7 @@
 				<text>%tw_zip_location%</text>
 				<filter extn=".zip;.ozip;.ZIP;.OZIP" folders="1" files="1"/>
 				<prfxfilter prfx="Magisk-;Magisk.apk;app-release.apk;app-debug.apk" folders="1" files="1"/>
-				<path name="tw_zip_location" default="/sdcard"/>
+				<path name="tw_zip_location" default="/data/media/0"/>
 				<data name="tw_filename"/>
 				<selection name="tw_file"/>
 			</fileselector>
@@ -426,7 +426,7 @@
 				<placement x="%indent%" y="%row2_header_y%" w="%content_width%" h="%fileselector_install_height%"/>
 				<text>%tw_zip_location%</text>
 				<filter extn=".img" folders="1" files="1"/>
-				<path name="tw_zip_location" default="/sdcard"/>
+				<path name="tw_zip_location" default="/data/media/0"/>
 				<data name="tw_filename"/>
 				<selection name="tw_file"/>
 			</fileselector>
@@ -4828,7 +4828,7 @@
 					<action function="set">tw_action=partitionsd</action>
 					<action function="set">tw_has_action2=1</action>
 					<action function="set">tw_action2=set</action>
-					<action function="set">tw_action2_param=tw_zip_location=/sdcard</action>
+					<action function="set">tw_action2_param=tw_zip_location=/data/media/0</action>
 					<action function="set">tw_action_text1={@partitioning_sd=Partitioning SD Card...}</action>
 					<action function="set">tw_action_text2={@partitioning_sd2=This will take a few minutes.}</action>
 					<action function="set">tw_complete_text1={@part_sd_complete=Partitioning Complete}</action>
@@ -4861,7 +4861,7 @@
 				<placement x="%indent%" y="%row2_header_y%" w="%content_width%" h="%fileselector_install_height%"/>
 				<text>%tw_zip_location%</text>
 				<filter extn=".img" folders="1" files="1"/>
-				<path name="tw_zip_location" default="/sdcard"/>
+				<path name="tw_zip_location" default="/data/media/0"/>
 				<data name="tw_filename"/>
 				<selection name="tw_file"/>
 			</fileselector>
@@ -6093,7 +6093,7 @@
 					<action function="set">tw_action_text1={@change_twrp_folder_on_process=Changing TWRP folder}</action>
 					<action function="set">tw_complete_text1={@change_twrp_folder_after_process=TWRP folder changed to} %tw_custom_folder%</action>
 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
-					<action function="set">tw_filecheck=/sdcard/%tw_custom_folder%</action>
+					<action function="set">tw_filecheck=/data/media/0/%tw_custom_folder%</action>
 					<action function="set">tw_existpage=changeTwrpFolder</action>
 					<action function="set">tw_notexistpage=confirm_action</action>
 					<action function="page">filecheck</action>
@@ -6134,7 +6134,7 @@
 					<action function="set">tw_action_text1={@change_twrp_folder_on_process=Changing TWRP folder}</action>
 					<action function="set">tw_complete_text1={@change_twrp_folder_after_process=TWRP folder changed to} TWRP</action>
 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
-					<action function="set">tw_filecheck=/sdcard/TWRP</action>
+					<action function="set">tw_filecheck=/data/media/0/TWRP</action>
 					<action function="set">tw_existpage=changeTwrpFolder</action>
 					<action function="set">tw_notexistpage=confirm_action</action>
 					<action function="page">filecheck</action>

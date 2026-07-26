@@ -2093,9 +2093,11 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 		DataManager::LoadTWRPFolderInfo();
 		Update_System_Details();
 		Output_Partition(dat);
-		if (!android::base::StartsWith(dat->Actual_Block_Device, "/dev/block/mmcblk")) {
+		if (!dat->Symlink_Mount_Point.empty() &&
+				!android::base::StartsWith(dat->Actual_Block_Device, "/dev/block/mmcblk")) {
 			if (!dat->Bind_Mount(false))
-				LOGERR("Unable to bind mount /sdcard to %s\n", dat->Storage_Path.c_str());
+				LOGERR("Unable to bind mount %s to %s\n",
+					dat->Symlink_Mount_Point.c_str(), dat->Storage_Path.c_str());
 		}
 	} else
 		LOGERR("Unable to locate data partition.\n");
@@ -3385,10 +3387,11 @@ bool TWPartitionManager::Decrypt_Adopted() {
 									TWPartition* Dat = Find_Partition_By_Path("/data");
 									if (Dat) {
 										LOGINFO("Internal storage is found on adopted storage '%s'\n", (*adopt)->Display_Name.c_str());
-										LOGINFO("Changing '%s' to point to '%s'\n", Dat->Symlink_Mount_Point.c_str(), (*adopt)->Storage_Path.c_str());
+										LOGINFO("Changing storage alias '%s' to point to '%s'\n", Dat->Symlink_Mount_Point.c_str(), (*adopt)->Storage_Path.c_str());
 										(*adopt)->Symlink_Mount_Point = Dat->Symlink_Mount_Point;
-										Dat->Symlink_Mount_Point = "";
-										// Toggle mounts to ensure that the symlink mount point (probably /sdcard) is mounted to the right location
+										Dat->Symlink_Mount_Point.clear();
+										// Toggle mounts to ensure that an existing legacy alias is
+										// moved to the adopted storage.  Direct storage has no alias.
 										Dat->UnMount(false);
 										Dat->Mount(false);
 										(*adopt)->UnMount(false);

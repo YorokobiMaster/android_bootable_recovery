@@ -39,7 +39,14 @@
 #include "install/install.h"
 #include "recovery_utils/roots.h"
 
+#ifdef TW_INTERNAL_STORAGE_MOUNT_POINT
+#define TW_STORAGE_PATH_STRING_IMPL(x) #x
+#define TW_STORAGE_PATH_STRING(x) TW_STORAGE_PATH_STRING_IMPL(x)
+static constexpr const char* SDCARD_ROOT =
+    TW_STORAGE_PATH_STRING(TW_INTERNAL_STORAGE_MOUNT_POINT);
+#else
 static constexpr const char* SDCARD_ROOT = "/sdcard";
+#endif
 // How long (in seconds) we wait for the fuse-provided package file to
 // appear, before timing out.
 static constexpr int SDCARD_INSTALL_TIMEOUT = 10;

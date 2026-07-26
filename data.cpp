@@ -803,7 +803,11 @@ void DataManager::SetDefaultValues()
 	mData.SetValue("tw_wipe_dalvik", "0");
 	mData.SetValue(TW_ZIP_INDEX, "0");
 	mData.SetValue(TW_ZIP_QUEUE_COUNT, "0");
+#ifdef TW_INTERNAL_STORAGE_MOUNT_POINT
+	mData.SetValue(TW_FILENAME, EXPAND(TW_INTERNAL_STORAGE_MOUNT_POINT));
+#else
 	mData.SetValue(TW_FILENAME, "/sdcard");
+#endif
 	mData.SetValue(TW_SIMULATE_ACTIONS, "0");
 	mData.SetValue(TW_SIMULATE_FAIL, "0");
 	mData.SetValue(TW_IS_ENCRYPTED, "0");

@@ -134,7 +134,7 @@
 		<string name="wipe_hdr">Wipe</string>
 		<string name="factory_reset_hdr">Factory Reset</string>
 		<string name="factory_reset_btn">Factory Reset</string>
-		<string name="factory_reset1">Wipes Data, Cache, and Dalvik</string>
+		<string name="factory_reset1">Wipes Data and Dalvik</string>
 		<string name="factory_reset2">(not including internal storage)</string>
 		<string name="factory_reset3">Most of the time this is</string>
 		<string name="factory_reset4">the only wipe that you need.</string>

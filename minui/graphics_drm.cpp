@@ -433,8 +433,9 @@ GRSurface* MinuiBackendDrm::Flip() {
   if (drmModePageFlip(drm_fd, current_drm->monitor_crtc->crtc_id,
                       current_drm->GRSurfaceDrms[current_drm->current_buffer]->fb_id,
                       DRM_MODE_PAGE_FLIP_EVENT, &ongoing_flip) != 0) {
-    fprintf(stderr, "Failed to drmModePageFlip, active_display=%d", active_display);
-    return nullptr;
+    fprintf(stderr, "Failed to drmModePageFlip, active_display=%d; preserving draw surface\n",
+            active_display);
+    return current_drm->GRSurfaceDrms[current_drm->current_buffer].get();
   }
 
   while (ongoing_flip) {

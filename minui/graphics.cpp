@@ -637,7 +637,12 @@ int gr_init_font(const char* name, GRFont** dest) {
 #endif // TW_NO_MINUI_CUSTOM_FONTS
 
 void gr_flip() {
-  gr_draw = gr_backend->Flip();
+  GRSurface* next = gr_backend->Flip();
+  if (next != nullptr) {
+    gr_draw = next;
+  } else {
+    fprintf(stderr, "gr_flip: backend flip failed; preserving draw surface\n");
+  }
 }
 
 std::unique_ptr<MinuiBackend> create_backend(GraphicsBackend backend) {

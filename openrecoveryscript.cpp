@@ -415,6 +415,10 @@ int OpenRecoveryScript::run_script_file(void) {
 					ret_val = PartitionManager.Decrypt_Device(pass, atoi(userid.c_str()));
 					if (ret_val != 0)
 						ret_val = 1;  // failure
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+					else
+						PartitionManager.Dash_Release_Crypto_Mounts_If_Decrypted();
+#endif
 				} else {
 					gui_err("no_pwd=No password provided.");
 					ret_val = 1;  // failure
@@ -698,7 +702,12 @@ void OpenRecoveryScript::Run_CLI_Command(const char* command) {
 				userid = parts[2];
 
 			gui_msg("decrypt_cmd=Attempting to decrypt data partition or user data via command line.");
-			if (PartitionManager.Decrypt_Device(pass, atoi(userid.c_str())) == 0) {
+			const int decrypt_result =
+				PartitionManager.Decrypt_Device(pass, atoi(userid.c_str()));
+			if (decrypt_result == 0) {
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+				PartitionManager.Dash_Release_Crypto_Mounts_If_Decrypted();
+#endif
 				// set_page_done = 1;  // done by singleaction_page anyway
 				std::string orsFile = TWFunc::get_log_dir() + "/openrecoveryscript";
 				if (TWFunc::Path_Exists(orsFile)) {

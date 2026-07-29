@@ -1522,6 +1522,9 @@ int GUIAction::checkbackupname(std::string arg __unused)
 int GUIAction::decrypt(std::string arg __unused)
 {
 	int op_status = 0;
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+	bool dash_decrypt_succeeded = false;
+#endif
 
 	operation_start("Decrypt");
 	if (simulate) {
@@ -1540,10 +1543,17 @@ int GUIAction::decrypt(std::string arg __unused)
 			DataManager::GetValue("tw_crypto_user_id", userID);
 			if (userID != "") {
 				op_status = PartitionManager.Decrypt_Device(Password, atoi(userID.c_str()));
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+				dash_decrypt_succeeded = op_status == 0;
+#endif
 				if (userID != "0") {
 					if (op_status != 0)
 						op_status = 1;
 					operation_end(op_status);
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+					if (dash_decrypt_succeeded)
+						PartitionManager.Dash_Release_Crypto_Mounts_If_Decrypted();
+#endif
 	          		return 0;
 				}
 			} else {
@@ -1553,6 +1563,9 @@ int GUIAction::decrypt(std::string arg __unused)
 		::sleep(1);
 		} else {  // for FDE
 			op_status = PartitionManager.Decrypt_Device(Password);
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+			dash_decrypt_succeeded = op_status == 0;
+#endif
 		}
 
 		if (op_status != 0)
@@ -1577,6 +1590,10 @@ int GUIAction::decrypt(std::string arg __unused)
 	}
 
 	operation_end(op_status);
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+	if (dash_decrypt_succeeded)
+		PartitionManager.Dash_Release_Crypto_Mounts_If_Decrypted();
+#endif
 	return 0;
 }
 

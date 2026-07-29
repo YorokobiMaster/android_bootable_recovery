@@ -653,6 +653,9 @@ int TWPartitionManager::Write_Fstab(void) {
 
 void TWPartitionManager::Decrypt_Data() {
 	#ifdef TW_INCLUDE_CRYPTO
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+	bool dash_decrypt_succeeded = false;
+#endif
 	TWPartition* Decrypt_Data = Find_Partition_By_Path("/data");
 	if (Decrypt_Data && Decrypt_Data->Is_Encrypted && !Decrypt_Data->Is_Decrypted) {
 		Set_Crypto_State();
@@ -711,6 +714,9 @@ void TWPartitionManager::Decrypt_Data() {
 #endif
 			if (attempt_default_password) {
 				if (Decrypt_Device("!") == 0) {
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+					dash_decrypt_succeeded = true;
+#endif
 					gui_msg("decrypt_success=Successfully decrypted with default password.");
 					DataManager::SetValue(TW_IS_ENCRYPTED, 0);
 				} else {
@@ -744,6 +750,10 @@ void TWPartitionManager::Decrypt_Data() {
 	if (Decrypt_Data && (!Decrypt_Data->Is_Encrypted || Decrypt_Data->Is_Decrypted)) {
 		Decrypt_Adopted();
 	}
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+	if (dash_decrypt_succeeded)
+		Dash_Release_Crypto_Mounts_If_Decrypted();
+#endif
 #endif
 }
 
@@ -2151,6 +2161,127 @@ bool TWPartitionManager::Refresh_User0_ReadOnly_Decrypt_State(bool* mtp_refresh_
 	// republish storage without weakening the decrypt path.
 	return state_refreshed;
 }
+
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+namespace {
+
+struct DashInitService {
+	const char* name;
+	std::string state;
+	pid_t pid;
+};
+
+bool Dash_Process_Exists(pid_t pid) {
+	if (pid <= 0)
+		return false;
+	if (kill(pid, 0) == 0)
+		return true;
+	return errno != ESRCH;
+}
+
+bool Dash_Stop_Credential_Services() {
+	static constexpr const char* kServiceNames[] = {
+		"vendor.gatekeeper_mitee",
+		"vendor.keymint-mitee",
+		"tee-supplicant",
+	};
+	bool all_stopped = true;
+	for (const char* name : kServiceNames) {
+		const std::string state_property = "init.svc." + std::string(name);
+		const std::string pid_property = "init.svc_debug_pid." + std::string(name);
+		DashInitService service{
+			name,
+			android::base::GetProperty(state_property, ""),
+			static_cast<pid_t>(android::base::GetIntProperty(pid_property, 0)),
+		};
+
+		if (service.state != "stopped") {
+			if (!android::base::SetProperty("ctl.stop", name)) {
+				LOGERR("dash post-decrypt: failed to request stop for init service '%s'.\n", name);
+			} else {
+				LOGINFO("dash post-decrypt: requested stop for init service '%s' (pid %d, state '%s').\n",
+					name, service.pid, service.state.c_str());
+			}
+		}
+
+		// Stop and confirm each client before moving toward the TEE backend.
+		static constexpr int kWaitIterations = 100;
+		for (int iteration = 0; iteration < kWaitIterations; ++iteration) {
+			const std::string state =
+				android::base::GetProperty(state_property, "");
+			if (state == "stopped" && !Dash_Process_Exists(service.pid))
+				break;
+			usleep(50000);
+		}
+
+		const std::string state =
+			android::base::GetProperty(state_property, "");
+		const bool pid_alive = Dash_Process_Exists(service.pid);
+		if (state == "stopped" && !pid_alive) {
+			LOGINFO("dash post-decrypt: init service '%s' final state "
+				"(state '%s', original pid %d alive no).\n",
+				service.name, state.c_str(), service.pid);
+		} else {
+			LOGERR("dash post-decrypt: init service '%s' did not stop cleanly "
+				"(state '%s', original pid %d alive %s).\n",
+				service.name, state.c_str(), service.pid, pid_alive ? "yes" : "no");
+			all_stopped = false;
+		}
+	}
+	return all_stopped;
+}
+
+}  // namespace
+
+void TWPartitionManager::Dash_Release_Crypto_Mounts_If_Decrypted() {
+	if (DataManager::GetIntValue(TW_IS_DECRYPTED) != 1)
+		return;
+
+	bool user0_decrypted = false;
+	for (const auto& user : Users_List) {
+		if (user.userId == "0") {
+			user0_decrypted = user.isDecrypted;
+			break;
+		}
+	}
+	if (!user0_decrypted)
+		user0_decrypted =
+			android::base::GetProperty("twrp.user.0.decrypt", "0") == "1";
+	if (!user0_decrypted)
+		return;
+
+	const bool vendor_mounted = Is_Mounted_By_Path("/vendor");
+	const bool odm_mounted = Is_Mounted_By_Path("/odm");
+	if (!vendor_mounted && !odm_mounted)
+		return;
+
+	LOGINFO("dash post-decrypt: user 0 CE and TWRP data decrypt are complete; "
+		"releasing credential runtime mounts.\n");
+
+	if (vendor_mounted) {
+		if (Dash_Stop_Credential_Services()) {
+			if (!UnMount_By_Path("/vendor", true, 0)) {
+				LOGERR("dash post-decrypt: ordinary /vendor unmount failed; "
+					"the partition remains mounted for a later manual retry.\n");
+			} else {
+				LOGINFO("dash post-decrypt: /vendor unmounted normally.\n");
+			}
+		} else {
+			LOGERR("dash post-decrypt: keeping /vendor mounted because its "
+				"credential services were not confirmed stopped.\n");
+		}
+	}
+
+	if (odm_mounted) {
+		if (!UnMount_By_Path("/odm", true, 0)) {
+			LOGERR("dash post-decrypt: ordinary /odm unmount failed; "
+				"the partition remains mounted for a later manual retry.\n");
+		} else {
+			LOGINFO("dash post-decrypt: /odm unmounted normally.\n");
+		}
+	}
+}
+#endif
 
 void TWPartitionManager::Parse_Users() {
 #ifdef TW_INCLUDE_FBE

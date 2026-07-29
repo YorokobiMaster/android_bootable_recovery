@@ -355,6 +355,9 @@ public:
 	void Update_System_Details();                                             // Updates fstab, file systems, sizes, etc.
 	int Decrypt_Device(string Password, int user_id = 0);                     // Attempt to decrypt any encrypted partitions
 	bool Refresh_User0_ReadOnly_Decrypt_State(bool* mtp_refresh_failed);       // Refresh volatile state after read-only user 0 decrypt
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+	void Dash_Release_Crypto_Mounts_If_Decrypted();                            // Release dash credential runtime after user 0 decrypt
+#endif
 	void Parse_Users();                                                       // Parse FBE users
 	int usb_storage_enable(void);                                             // Enable USB storage mode
 	int usb_storage_disable(void);                                            // Disable USB storage mode

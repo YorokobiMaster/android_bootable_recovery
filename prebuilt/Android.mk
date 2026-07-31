@@ -504,7 +504,7 @@ LOCAL_POST_INSTALL_CMD += \
     cp $(TARGET_OUT_VENDOR_ETC)/selinux/vndservice_contexts $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/selinux/vndservice_contexts && \
     cp $(TARGET_OUT_VENDOR_ETC)/selinux/vendor_hwservice_contexts $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/selinux/vendor_hwservice_contexts && \
     cp $(TARGET_OUT_ETC)/selinux/plat_keystore2_key_contexts $(TARGET_RECOVERY_ROOT_OUT)/system/etc/selinux/plat_keystore2_key_contexts && \
-    cp $(TARGET_OUT_ETC)/task_profiles.json $(TARGET_RECOVERY_ROOT_OUT)/system/etc/task_profiles/task_profiles_30.json
+    cp $(TARGET_OUT_ETC)/task_profiles.json $(TARGET_RECOVERY_ROOT_OUT)/system/etc/task_profiles.json
     ifeq ($(TARGET_USES_MKE2FS), true)
         LOCAL_POST_INSTALL_CMD += \
             && cp $(TARGET_OUT_ETC)/mke2fs.conf $(TARGET_RECOVERY_ROOT_OUT)/system/etc/mke2fs.conf

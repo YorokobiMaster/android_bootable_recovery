@@ -16,10 +16,12 @@
 
 #include "graphics_drm.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -141,15 +143,21 @@ std::unique_ptr<GRSurfaceDrm> GRSurfaceDrm::Create(int drm_fd, int width, int he
   return surface;
 }
 
-void MinuiBackendDrm::DrmDisableCrtc(int drm_fd, drmModeCrtc* crtc) {
-  if (crtc) {
-    drmModeSetCrtc(drm_fd, crtc->crtc_id,
-                   0,         // fb_id
-                   0, 0,      // x,y
-                   nullptr,   // connectors
-                   0,         // connector_count
-                   nullptr);  // mode
+bool MinuiBackendDrm::DrmDisableCrtc(int drm_fd, drmModeCrtc* crtc) {
+  if (!crtc) {
+    return false;
   }
+
+  if (drmModeSetCrtc(drm_fd, crtc->crtc_id,
+                     0,         // fb_id
+                     0, 0,      // x,y
+                     nullptr,   // connectors
+                     0,         // connector_count
+                     nullptr) != 0) {  // mode
+    perror("Failed to disable DRM CRTC");
+    return false;
+  }
+  return true;
 }
 
 bool MinuiBackendDrm::DrmEnableCrtc(int drm_fd, drmModeCrtc* crtc,
@@ -158,7 +166,9 @@ bool MinuiBackendDrm::DrmEnableCrtc(int drm_fd, drmModeCrtc* crtc,
   if (drmModeSetCrtc(drm_fd, crtc->crtc_id, surface->fb_id, 0, 0,  // x,y
                      connector_id, 1,                              // connector_count
                      &crtc->mode) != 0) {
-    fprintf(stderr, "Failed to drmModeSetCrtc(%d)\n", *connector_id);
+    const int saved_errno = errno;
+    fprintf(stderr, "Failed to drmModeSetCrtc(%d): errno=%d (%s)\n", *connector_id, saved_errno,
+            strerror(saved_errno));
     return false;
   }
 
@@ -170,7 +180,7 @@ void MinuiBackendDrm::Blank(bool blank) {
 }
 
 void MinuiBackendDrm::Blank(bool blank, DrmConnector index) {
-  const auto* drmInterface = &drm[DRM_MAIN];
+  auto* drmInterface = &drm[DRM_MAIN];
 
   switch (index) {
     case DRM_MAIN:
@@ -190,13 +200,19 @@ void MinuiBackendDrm::Blank(bool blank, DrmConnector index) {
   }
 
   if (blank) {
-    DrmDisableCrtc(drm_fd, drmInterface->monitor_crtc);
+    if (DrmDisableCrtc(drm_fd, drmInterface->monitor_crtc)) {
+      drmInterface->enabled = false;
+    }
   } else {
-    DrmEnableCrtc(drm_fd, drmInterface->monitor_crtc,
-                  drmInterface->GRSurfaceDrms[drmInterface->current_buffer],
-                  &drmInterface->monitor_connector->connector_id);
-
-    active_display = index;
+    // Restore the last successfully presented buffer. The current buffer
+    // remains available for the pending full render requested by the GUI.
+    const int presented_buffer = 1 - drmInterface->current_buffer;
+    if (DrmEnableCrtc(drm_fd, drmInterface->monitor_crtc,
+                      drmInterface->GRSurfaceDrms[presented_buffer],
+                      &drmInterface->monitor_connector->connector_id)) {
+      drmInterface->enabled = true;
+      active_display = index;
+    }
   }
 }
 
@@ -408,6 +424,7 @@ GRSurface* MinuiBackendDrm::Init() {
                      &drm[DRM_MAIN].monitor_connector->connector_id)) {
     return nullptr;
   }
+  drm[DRM_MAIN].enabled = true;
 
   return drm[DRM_MAIN].GRSurfaceDrms[0].get();
 }
@@ -430,11 +447,20 @@ GRSurface* MinuiBackendDrm::Flip() {
     return nullptr;
   }
 
+  // A blanked CRTC cannot accept a page flip. Keep the draw buffer and let
+  // the next unblank present the most recent in-memory frame.
+  if (!current_drm->enabled) {
+    return current_drm->GRSurfaceDrms[current_drm->current_buffer].get();
+  }
+
   if (drmModePageFlip(drm_fd, current_drm->monitor_crtc->crtc_id,
                       current_drm->GRSurfaceDrms[current_drm->current_buffer]->fb_id,
                       DRM_MODE_PAGE_FLIP_EVENT, &ongoing_flip) != 0) {
-    fprintf(stderr, "Failed to drmModePageFlip, active_display=%d; preserving draw surface\n",
-            active_display);
+    const int saved_errno = errno;
+    fprintf(stderr,
+            "Failed to drmModePageFlip, active_display=%d: errno=%d (%s); preserving draw "
+            "surface\n",
+            active_display, saved_errno, strerror(saved_errno));
     return current_drm->GRSurfaceDrms[current_drm->current_buffer].get();
   }
 

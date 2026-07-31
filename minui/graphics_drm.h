@@ -63,7 +63,7 @@ class MinuiBackendDrm : public MinuiBackend {
   bool HasMultipleConnectors() override;
 
  private:
-  void DrmDisableCrtc(int drm_fd, drmModeCrtc* crtc);
+  bool DrmDisableCrtc(int drm_fd, drmModeCrtc* crtc);
   bool DrmEnableCrtc(int drm_fd, drmModeCrtc* crtc, const std::unique_ptr<GRSurfaceDrm>& surface,
                      uint32_t* conntcors);
   void DisableNonMainCrtcs(int fd, drmModeRes* resources, drmModeCrtc* main_crtc);
@@ -75,6 +75,7 @@ class MinuiBackendDrm : public MinuiBackend {
     drmModeCrtc* monitor_crtc{ nullptr };
     drmModeConnector* monitor_connector{ nullptr };
     uint32_t selected_mode{ 0 };
+    bool enabled{ false };
   } drm[DRM_MAX];
 
   int drm_fd{ -1 };

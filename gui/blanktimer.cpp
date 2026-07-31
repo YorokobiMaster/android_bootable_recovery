@@ -39,7 +39,10 @@ blanktimer::blanktimer(void) {
 }
 
 bool blanktimer::isScreenOff() {
-	return state >= kOff;
+	pthread_mutex_lock(&mutex);
+	bool screen_off = state >= kOff;
+	pthread_mutex_unlock(&mutex);
+	return screen_off;
 }
 
 void blanktimer::setTime(int newtime) {

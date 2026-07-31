@@ -898,14 +898,14 @@ static void disable_non_main_crtcs(int fd,
   drmModeAtomicFree(atomic_req);
 }
 
-static void update_plane_fb() {
+static bool update_plane_fb() {
   uint32_t i, prop_id;
 
   /* Set atomic req */
   drmModeAtomicReqPtr atomic_req = drmModeAtomicAlloc();
   if (!atomic_req) {
      printf("Atomic Alloc failed. Could not update fb_id\n");
-     return;
+     return false;
   }
 
   /* Add conn-crtc association property required
@@ -929,6 +929,7 @@ static void update_plane_fb() {
   if (ret)
     printf("Atomic commit failed ret=%d\n", ret);
 
+  return ret == 0;
 }
 
 static GRSurface* drm_init(minui_backend* backend __unused) {
@@ -1149,8 +1150,12 @@ static GRSurface* drm_init(minui_backend* backend __unused) {
 static GRSurface* drm_flip(minui_backend* backend __unused) {
     memcpy(drm_surfaces[current_buffer]->base.data,
             draw_buf->data, draw_buf->height * draw_buf->row_bytes);
-    update_plane_fb();
-    current_buffer = 1 - current_buffer;
+
+    // Page and overlay state may change while the display pipeline is
+    // blanked. Retain the latest frame in memory and present it on unblank
+    // instead of submitting an invalid atomic commit.
+    if (!current_blank_state && update_plane_fb())
+        current_buffer = 1 - current_buffer;
     return draw_buf;
 }
 

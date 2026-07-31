@@ -650,10 +650,20 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 		}
 		else
 		{
-			gForceRender.set_value(0);
-			PageManager::Render();
-			flip();
-			input_timeout_ms = 0;
+			/*
+			 * Page and overlay changes are allowed while the display is
+			 * blanked. Keep the force-render request pending until unblank
+			 * has restored the display pipeline; submitting a flip to a
+			 * disabled CRTC is invalid on DRM backends.
+			 */
+			if (!blankTimer.isScreenOff()) {
+				gForceRender.set_value(0);
+				PageManager::Render();
+				flip();
+				input_timeout_ms = 0;
+			} else {
+				input_timeout_ms = 1000;
+			}
 		}
 
 		blankTimer.checkForTimeout();

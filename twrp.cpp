@@ -223,11 +223,6 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 	LOGINFO("Backup of TWRP ramdisk done.\n");
 #endif
 	Decrypt_Page(skip_decryption, datamedia);
-#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
-	// One initialization catch-up after the blocking startup decrypt flow has
-	// returned and both PartitionManager and the base UI are initialized.
-	PartitionManager.Dash_Release_Crypto_Mounts_If_Decrypted();
-#endif
 
 	// Check for and load custom theme if present
 	TWFunc::check_selinux_support();

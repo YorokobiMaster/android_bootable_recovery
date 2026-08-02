@@ -38,6 +38,7 @@ cc_library_shared {
         "resources.cpp",
         "truetype.cpp",
         "graphics_utils.cpp",
+        "screenshot_utils.cpp",
         "events.cpp"
     ],
     shared_libs: [
@@ -55,4 +56,12 @@ cc_library_shared {
 	"libbinder_ndk"
     ],
     static_libs: ["libpixelflinger_twrp"]
+}
+
+cc_test_host {
+    name: "minuitwrp_screenshot_utils_test",
+    srcs: [
+        "screenshot_utils.cpp",
+        "screenshot_utils_test.cpp",
+    ],
 }

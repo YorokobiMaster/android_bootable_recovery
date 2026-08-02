@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "minuitwrp/minui.h"
+#include "screenshot_utils.h"
 
 struct fb_var_screeninfo vi;
 extern GGLSurface gr_mem_surface;
@@ -30,6 +31,7 @@ extern unsigned int gr_rotation;
 
 int gr_save_screenshot(const char *dest)
 {
+    constexpr size_t screenshot_pixel_bytes = 4;
     uint32_t y, stride_bytes;
     volatile int res = -1;
     GGLContext *gl = NULL;
@@ -44,7 +46,11 @@ int gr_save_screenshot(const char *dest)
     if(!fp)
         goto exit;
 
-    img_data = (uint8_t *)malloc(gr_mem_surface.stride * gr_mem_surface.height * gr_draw->pixel_bytes);
+    // The intermediate surface is always RGBA/BGRA8888, even when the draw
+    // surface is RGB565. Allocate for the destination format rather than the
+    // source format so pixelflinger cannot write past the screenshot buffer.
+    img_data = (uint8_t *)malloc(gr_mem_surface.stride * gr_mem_surface.height *
+                                 screenshot_pixel_bytes);
     if (!img_data) {
         printf("gr_save_screenshot failed to malloc img_data\n");
         goto exit;
@@ -61,23 +67,33 @@ int gr_save_screenshot(const char *dest)
     surface.format = GGL_PIXEL_FORMAT_RGBA_8888;
 #endif
 
-    gglInit(&gl);
-    gl->colorBuffer(gl, &surface);
-    gl->activeTexture(gl, 0);
+    if (gr_mem_surface.format == GGL_PIXEL_FORMAT_RGB_565) {
+        printf("Screenshot: using bounded RGB565 conversion\n");
+        if (!ConvertRgb565ToRgba8888(gr_mem_surface.data, gr_draw->row_bytes,
+                                     gr_mem_surface.width, gr_mem_surface.height, img_data,
+                                     surface.stride * screenshot_pixel_bytes)) {
+            printf("Screenshot: invalid RGB565 surface geometry\n");
+            goto exit;
+        }
+    } else {
+        gglInit(&gl);
+        gl->colorBuffer(gl, &surface);
+        gl->activeTexture(gl, 0);
 
-    if(gr_mem_surface.format == GGL_PIXEL_FORMAT_RGBX_8888)
-        gl->disable(gl, GGL_BLEND);
+        if(gr_mem_surface.format == GGL_PIXEL_FORMAT_RGBX_8888)
+            gl->disable(gl, GGL_BLEND);
 
-    gl->bindTexture(gl, &gr_mem_surface);
-    gl->texEnvi(gl, GGL_TEXTURE_ENV, GGL_TEXTURE_ENV_MODE, GGL_REPLACE);
-    gl->texGeni(gl, GGL_S, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
-    gl->texGeni(gl, GGL_T, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
-    gl->enable(gl, GGL_TEXTURE_2D);
-    gl->texCoord2i(gl, 0, 0);
-    gl->recti(gl, 0, 0, gr_mem_surface.width, gr_mem_surface.height);
+        gl->bindTexture(gl, &gr_mem_surface);
+        gl->texEnvi(gl, GGL_TEXTURE_ENV, GGL_TEXTURE_ENV_MODE, GGL_REPLACE);
+        gl->texGeni(gl, GGL_S, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
+        gl->texGeni(gl, GGL_T, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
+        gl->enable(gl, GGL_TEXTURE_2D);
+        gl->texCoord2i(gl, 0, 0);
+        gl->recti(gl, 0, 0, gr_mem_surface.width, gr_mem_surface.height);
 
-    gglUninit(gl);
-    gl = NULL;
+        gglUninit(gl);
+        gl = NULL;
+    }
 
     png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png_ptr)
@@ -100,7 +116,7 @@ int gr_save_screenshot(const char *dest)
     png_set_filler(png_ptr, 0, PNG_FILLER_AFTER);
 
     ptr = img_data;
-    stride_bytes = surface.stride*4;
+    stride_bytes = surface.stride * screenshot_pixel_bytes;
     for(y = 0; y < surface.height; ++y)
     {
         png_write_row(png_ptr, ptr);

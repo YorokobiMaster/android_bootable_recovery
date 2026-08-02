@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -63,6 +64,122 @@ static std::atomic_int vib_on_count = 0;
 
 #define LEDS_HAPTICS_DURATION_FILE	"/sys/class/leds/vibrator/duration"
 #define LEDS_HAPTICS_ACTIVATE_FILE	"/sys/class/leds/vibrator/activate"
+
+#ifdef USE_DASH_FS3002_HAPTICS
+#define DASH_HAPTICS_DEVICE "/dev/input/event3"
+#define DASH_HAPTICS_NAME "fshaptic"
+#define DASH_HAPTICS_LEVEL 0x6000
+
+static int dash_haptics_fd = -1;
+static int dash_haptics_effect_id = -1;
+// -1: not checked, 0: disabled for this boot, 1: ready.
+static int dash_haptics_state = -1;
+
+static bool dash_test_bit(const unsigned long* bits, unsigned int bit)
+{
+    const unsigned int bits_per_word = sizeof(unsigned long) * 8;
+    return bits[bit / bits_per_word] & (1UL << (bit % bits_per_word));
+}
+
+static bool dash_init_haptics()
+{
+    constexpr unsigned int kBitsPerWord = sizeof(unsigned long) * 8;
+    char actual_name[128] = {};
+    unsigned long event_bits[(EV_MAX + kBitsPerWord) / kBitsPerWord] = {};
+    unsigned long ff_bits[(FF_MAX + kBitsPerWord) / kBitsPerWord] = {};
+
+    if (dash_haptics_state != -1)
+        return dash_haptics_state == 1;
+
+    LOGI("Dash haptics: expected device: %s\n", DASH_HAPTICS_DEVICE);
+    LOGI("Dash haptics: expected name: %s\n", DASH_HAPTICS_NAME);
+
+    dash_haptics_fd = open(DASH_HAPTICS_DEVICE, O_RDWR | O_CLOEXEC);
+    if (dash_haptics_fd < 0) {
+        LOGE("Dash haptics: cannot open %s: %s\n", DASH_HAPTICS_DEVICE, strerror(errno));
+        goto disable;
+    }
+
+    if (ioctl(dash_haptics_fd, EVIOCGNAME(sizeof(actual_name)), actual_name) < 0) {
+        LOGE("Dash haptics: cannot read actual device name: %s\n", strerror(errno));
+        goto disable;
+    }
+    LOGI("Dash haptics: actual name: %s\n", actual_name);
+    if (strcmp(actual_name, DASH_HAPTICS_NAME) != 0) {
+        LOGE("Dash haptics: device name mismatch\n");
+        goto disable;
+    }
+
+    if (ioctl(dash_haptics_fd, EVIOCGBIT(0, sizeof(event_bits)), event_bits) < 0) {
+        LOGE("Dash haptics: cannot read event capabilities: %s\n", strerror(errno));
+        goto disable;
+    }
+    LOGI("Dash haptics: EV_FF capability: %s\n",
+            dash_test_bit(event_bits, EV_FF) ? "yes" : "no");
+    if (!dash_test_bit(event_bits, EV_FF))
+        goto disable;
+
+    if (ioctl(dash_haptics_fd, EVIOCGBIT(EV_FF, sizeof(ff_bits)), ff_bits) < 0) {
+        LOGE("Dash haptics: cannot read force-feedback capabilities: %s\n", strerror(errno));
+        goto disable;
+    }
+    LOGI("Dash haptics: FF_CONSTANT capability: %s\n",
+            dash_test_bit(ff_bits, FF_CONSTANT) ? "yes" : "no");
+    if (!dash_test_bit(ff_bits, FF_CONSTANT))
+        goto disable;
+
+    dash_haptics_state = 1;
+    LOGI("Dash haptics: backend enabled for this boot\n");
+    return true;
+
+disable:
+    if (dash_haptics_fd >= 0) {
+        close(dash_haptics_fd);
+        dash_haptics_fd = -1;
+    }
+    dash_haptics_state = 0;
+    LOGE("Dash haptics: backend disabled for this boot\n");
+    return false;
+}
+
+static int dash_vibrate(int timeout_ms)
+{
+    struct ff_effect effect = {};
+    struct input_event play = {};
+
+    if (!dash_init_haptics())
+        return -1;
+
+    effect.type = FF_CONSTANT;
+    effect.id = dash_haptics_effect_id;
+    effect.replay.length = static_cast<__u16>(timeout_ms);
+    effect.u.constant.level = DASH_HAPTICS_LEVEL;
+    if (ioctl(dash_haptics_fd, EVIOCSFF, &effect) < 0) {
+        LOGE("Dash haptics: EVIOCSFF(FF_CONSTANT) failed: %s\n", strerror(errno));
+        goto disable;
+    }
+    dash_haptics_effect_id = effect.id;
+
+    play.type = EV_FF;
+    play.code = dash_haptics_effect_id;
+    play.value = 1;
+    if (write(dash_haptics_fd, &play, sizeof(play)) != sizeof(play)) {
+        LOGE("Dash haptics: EV_FF play failed: %s\n", strerror(errno));
+        goto disable;
+    }
+    return 0;
+
+disable:
+    if (dash_haptics_effect_id >= 0)
+        ioctl(dash_haptics_fd, EVIOCRMFF, dash_haptics_effect_id);
+    close(dash_haptics_fd);
+    dash_haptics_fd = -1;
+    dash_haptics_effect_id = -1;
+    dash_haptics_state = 0;
+    LOGE("Dash haptics: backend disabled for this boot\n");
+    return -1;
+}
+#endif
 
 #ifndef SYN_REPORT
 #define SYN_REPORT          0x00
@@ -150,6 +267,9 @@ int write_to_file(const std::string& fn, const std::string& line) {
 int vibrate(int timeout_ms)
 {
     if (timeout_ms > 10000) timeout_ms = 1000;
+#ifdef USE_DASH_FS3002_HAPTICS
+    return dash_vibrate(timeout_ms);
+#else
     char tout[6];
     sprintf(tout, "%i", timeout_ms);
 
@@ -189,6 +309,7 @@ int vibrate(int timeout_ms)
         write_to_file(VIBRATOR_TIMEOUT_FILE, tout);
 #endif
     return 0;
+#endif
 }
 #endif
 #endif

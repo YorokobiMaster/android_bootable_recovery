@@ -11,6 +11,10 @@ import (
 func globalFlags(ctx android.BaseContext) []string {
 	var cflags []string
 
+	if getMakeVars(ctx, "TW_DASH_FS3002_HAPTICS") == "true" {
+		cflags = append(cflags, "-DUSE_DASH_FS3002_HAPTICS")
+	}
+
 	matches, err := filepath.Glob("external/libdrm/Android.*")
 	_ = matches
 	if err == nil {

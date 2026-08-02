@@ -55,7 +55,7 @@ extern "C" {
 	#include "cutils/properties.h"
 }
 
-OpenRecoveryScript::VoidFunction OpenRecoveryScript::call_after_cli_command;
+std::atomic<OpenRecoveryScript::VoidFunction> OpenRecoveryScript::call_after_cli_command{nullptr};
 
 #define SCRIPT_COMMAND_SIZE 512
 
@@ -710,8 +710,13 @@ void OpenRecoveryScript::Run_CLI_Command(const char* command) {
 		OpenRecoveryScript::run_script_file();
 	}
 
-	// let the GUI close the output fd and restart the command listener
-	call_after_cli_command();
+	// Consume the completion callback before invoking it. A stale action must
+	// not be able to close a later command's output or complete twice.
+	VoidFunction callback = call_after_cli_command.exchange(nullptr, std::memory_order_acq_rel);
+	if (callback)
+		callback();
+	else
+		LOGINFO("No CLI completion callback registered\n");
 	LOGINFO("Done reading ORS command from command line\n");
 }
 

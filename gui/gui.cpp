@@ -34,6 +34,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <atomic>
+
 extern "C"
 {
 #include "../twcommon.h"
@@ -68,7 +70,7 @@ static int gGuiInitialized = 0;
 static TWAtomicInt gForceRender;
 blanktimer blankTimer;
 int ors_read_fd = -1;
-static FILE* orsout = NULL;
+static std::atomic<FILE*> orsout{nullptr};
 static float scale_theme_w = 1;
 static float scale_theme_h = 1;
 
@@ -446,8 +448,18 @@ static void setup_ors_command()
 static void ors_command_done()
 {
 	gui_set_FILE(NULL);
-	fclose(orsout);
-	orsout = NULL;
+	FILE* output = orsout.exchange(nullptr, std::memory_order_acq_rel);
+	if (output)
+		fclose(output);
+	else
+		LOGINFO("ORS output was already closed\n");
+
+	std::string action;
+	DataManager::GetValue("tw_action", action);
+	if (action == "twcmd") {
+		DataManager::SetValue("tw_action", "");
+		DataManager::SetValue("tw_action_param", "");
+	}
 
 	if (DataManager::GetIntValue("tw_page_done") == 0) {
 		// The select function will return ready to read and the
@@ -467,8 +479,9 @@ static void ors_command_read()
 		command[1022] = '\n';
 		command[1023] = '\0';
 		LOGINFO("Command '%s' received\n", command);
-		orsout = fopen(ORS_OUTPUT_FILE, "w");
-		if (!orsout) {
+		FILE* output = fopen(ORS_OUTPUT_FILE, "w");
+		orsout.store(output, std::memory_order_release);
+		if (!output) {
 			close(ors_read_fd);
 			ors_read_fd = -1;
 			set_select_fd();
@@ -478,12 +491,12 @@ static void ors_command_read()
 			return;
 		}
 		if (DataManager::GetIntValue("tw_busy") != 0) {
-			fputs("Failed, operation in progress\n", orsout);
+			fputs("Failed, operation in progress\n", output);
 			LOGINFO("Command cannot be performed, operation in progress.\n");
-			fclose(orsout);
+			ors_command_done();
 		} else {
 			if (strlen(command) == 11 && strncmp(command, "dumpstrings", 11) == 0) {
-				gui_set_FILE(orsout);
+				gui_set_FILE(output);
 				PageManager::GetResources()->DumpStrings();
 				ors_command_done();
 			} else if (strlen(command) == 11 && strncmp(command, "reloadtheme", 11) == 0) {
@@ -495,7 +508,7 @@ static void ors_command_read()
 				ors_command_done();
 			} else {
 				// mirror output messages
-				gui_set_FILE(orsout);
+				gui_set_FILE(output);
 				// close orsout and restart listener after command is done
 				OpenRecoveryScript::Call_After_CLI_Command(ors_command_done);
 				// run the command in a threaded action...
@@ -595,7 +608,7 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 			FD_SET(PartitionManager.uevent_pfd.fd, &fdset);
 		}
 #ifndef TW_OEM_BUILD
-		if (ors_read_fd > 0 && !orsout) { // orsout is non-NULL if a command is still running
+		if (ors_read_fd > 0 && !orsout.load(std::memory_order_acquire)) { // orsout is non-NULL if a command is still running
 			FD_SET(ors_read_fd, &fdset);
 		}
 #endif
@@ -606,7 +619,7 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 				terminal_pty_read();
 			if (PartitionManager.uevent_pfd.fd > 0 && FD_ISSET(PartitionManager.uevent_pfd.fd, &fdset))
 				PartitionManager.read_uevent();
-			if (ors_read_fd > 0 && !orsout && FD_ISSET(ors_read_fd, &fdset))
+			if (ors_read_fd > 0 && !orsout.load(std::memory_order_acquire) && FD_ISSET(ors_read_fd, &fdset))
 				ors_command_read();
 		}
 

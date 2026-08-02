@@ -357,6 +357,14 @@ static void CreateMinadbdServiceAndExecuteCommands(
   }
   if (child == 0) {
     recovery_socket.reset();
+    // Recovery itself drops this private compatibility path after startup so
+    // ordinary child tools use the platform runtime. minadbd is built with
+    // the recovery ABI, so restore the path only for this exec.
+    if (setenv("LD_LIBRARY_PATH",
+               "/system/lib64/minadbd:/system/lib64/twrp16:/system/lib64", 1) == -1) {
+      PLOG(ERROR) << "Failed to set minadbd library path";
+      _exit(EXIT_FAILURE);
+    }
     std::vector<std::string> minadbd_commands = {
       "/system/bin/minadbd",
       "--socket_fd",

@@ -2103,54 +2103,146 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 		LOGERR("Unable to locate data partition.\n");
 }
 
-bool TWPartitionManager::Refresh_User0_ReadOnly_Decrypt_State(bool* mtp_refresh_failed) {
-	if (mtp_refresh_failed != nullptr)
-		*mtp_refresh_failed = false;
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+namespace {
 
-	TWPartition* dat = Find_Partition_By_Path("/data");
-	if (dat == nullptr || !dat->Is_Mounted()) {
-		LOGERR("Read-only decrypt state refresh: /data is unavailable.\n");
+struct DashInitService {
+	const char* name;
+	pid_t original_pid;
+};
+
+bool Dash_Process_Exists(pid_t pid) {
+	if (pid <= 0)
 		return false;
+	if (kill(pid, 0) == 0)
+		return true;
+	return errno != ESRCH;
+}
+
+bool Dash_Stop_Credential_Services(std::string* failed_service) {
+	static constexpr const char* kServiceNames[] = {
+		"vendor.gatekeeper_mitee",
+		"vendor.keymint-mitee",
+		"vendor.weaver_nxp",
+		"vendor.secure_element_hal_service",
+		"miweaver_hal_service",
+		"tee-supplicant",
+	};
+
+	bool all_stopped = true;
+	for (const char* name : kServiceNames) {
+		const std::string state_property = "init.svc." + std::string(name);
+		const std::string pid_property = "init.svc_debug_pid." + std::string(name);
+		DashInitService service{
+			name,
+			static_cast<pid_t>(android::base::GetIntProperty(pid_property, 0)),
+		};
+		const std::string initial_state =
+			android::base::GetProperty(state_property, "unknown");
+
+		if (!android::base::SetProperty("ctl.stop", name)) {
+			LOGERR("dash crypto release: failed to request stop for service '%s' "
+				"(state '%s', pid %d).\n",
+				name, initial_state.c_str(), service.original_pid);
+			all_stopped = false;
+			if (failed_service != nullptr && failed_service->empty())
+				*failed_service = name;
+			continue;
+		}
+
+		static constexpr int kWaitIterations = 100;
+		for (int iteration = 0; iteration < kWaitIterations; ++iteration) {
+			const std::string state =
+				android::base::GetProperty(state_property, "unknown");
+			const pid_t current_pid = static_cast<pid_t>(
+				android::base::GetIntProperty(pid_property, 0));
+			if (state == "stopped" && current_pid <= 0 &&
+					!Dash_Process_Exists(service.original_pid))
+				break;
+			usleep(50000);
+		}
+
+		const std::string final_state =
+			android::base::GetProperty(state_property, "unknown");
+		const pid_t final_pid = static_cast<pid_t>(
+			android::base::GetIntProperty(pid_property, 0));
+		const bool original_pid_alive = Dash_Process_Exists(service.original_pid);
+		if (final_state == "stopped" && final_pid <= 0 && !original_pid_alive) {
+			LOGINFO("dash crypto release: service '%s' stopped "
+				"(initial state '%s', original pid %d, final pid %d).\n",
+				name, initial_state.c_str(), service.original_pid, final_pid);
+		} else {
+			LOGERR("dash crypto release: service '%s' did not stop "
+				"(initial state '%s', final state '%s', original pid %d alive %s, "
+				"final pid %d).\n",
+				name, initial_state.c_str(), final_state.c_str(), service.original_pid,
+				original_pid_alive ? "yes" : "no", final_pid);
+			all_stopped = false;
+			if (failed_service != nullptr && failed_service->empty())
+				*failed_service = name;
+		}
 	}
+	return all_stopped;
+}
 
-	const bool current_storage_is_data =
-		Find_Partition_By_Path(DataManager::GetCurrentStoragePath()) == dat;
-	if (dat->Has_Data_Media) {
-		dat->Storage_Path = TWFunc::Path_Exists("/data/media/0")
-			? "/data/media/0" : "/data/media";
-		dat->Symlink_Path = dat->Storage_Path;
-		DataManager::SetValue(TW_INTERNAL_PATH, dat->Storage_Path);
+}  // namespace
+
+void TWPartitionManager::Dash_Release_Crypto_Mounts_If_Decrypted() {
+	if (Users_List.empty()) {
+		LOGERR("dash crypto release: user list is empty; keeping /vendor and /odm mounted.\n");
+		return;
 	}
-
-	Mark_User_Decrypted(0);
-	dat->Is_Encrypted = true;
-	dat->Is_Decrypted = true;
-	DataManager::SetValue(TW_IS_DECRYPTED, 1);
-	DataManager::SetValue(TW_IS_ENCRYPTED, 0);
-
-	const bool state_refreshed = dat->Update_Size(false);
-	if (!state_refreshed) {
-		LOGERR("Read-only decrypt state refresh: unable to update /data size.\n");
-	} else {
-		DataManager::SetValue(TW_BACKUP_DATA_SIZE,
-			static_cast<int>(dat->Backup_Size / 1048576LLU));
-		if (current_storage_is_data) {
-			DataManager::SetValue(TW_STORAGE_FREE_SIZE,
-				static_cast<int>(dat->Free / 1048576LLU));
-			DataManager::SetValue("tw_storage_display_name", dat->Storage_Name);
+	for (const auto& user : Users_List) {
+		if (!user.isDecrypted) {
+			LOGINFO("dash crypto release: user %s is still encrypted; keeping credential runtime available.\n",
+				user.userId.c_str());
+			return;
 		}
 	}
 
-	if (current_storage_is_data && DataManager::GetCurrentStoragePath() != dat->Storage_Path)
-		DataManager::SetValue("tw_storage_path", dat->Storage_Path);
-	if (current_storage_is_data)
-		DataManager::SetValue(TW_ZIP_LOCATION_VAR, dat->Storage_Path);
+	const bool vendor_mounted = Is_Mounted_By_Path("/vendor");
+	const bool odm_mounted = Is_Mounted_By_Path("/odm");
+	if (!vendor_mounted && !odm_mounted)
+		return;
 
-	// TWRP16's MTP implementation does not have the r52 lifecycle lock yet.
-	// Leave the already-running MTP process untouched; a later restart can
-	// republish storage without weakening the decrypt path.
-	return state_refreshed;
+	if (!android::base::SetProperty("twrp.crypto.runtime.released", "1") ||
+			android::base::GetProperty("twrp.crypto.runtime.released", "0") != "1") {
+		LOGERR("dash crypto release: failed to close future credential service starts; "
+			"keeping /vendor and /odm mounted.\n");
+		return;
+	}
+
+	LOGINFO("dash crypto release: all %zu discovered users are decrypted; "
+		"credential runtime is closed for this boot.\n", Users_List.size());
+	std::string failed_service;
+	if (!Dash_Stop_Credential_Services(&failed_service)) {
+		gui_msg(Msg(msg::kError,
+			"dash_crypto_service_stop_failed=Could not stop credential service {1}. "
+			"Vendor and ODM remain mounted; restart recovery and try again.")
+			(failed_service));
+		return;
+	}
+
+	if (android::base::GetProperty("twrp.crypto.runtime.released", "0") != "1") {
+		LOGERR("dash crypto release: lifecycle latch changed before unmount; "
+			"keeping /vendor and /odm mounted.\n");
+		return;
+	}
+
+	if (odm_mounted) {
+		if (!UnMount_By_Path("/odm", true, 0))
+			LOGERR("dash crypto release: ordinary /odm unmount failed.\n");
+		else
+			LOGINFO("dash crypto release: /odm unmounted normally.\n");
+	}
+	if (vendor_mounted) {
+		if (!UnMount_By_Path("/vendor", true, 0))
+			LOGERR("dash crypto release: ordinary /vendor unmount failed.\n");
+		else
+			LOGINFO("dash crypto release: /vendor unmounted normally.\n");
+	}
 }
+#endif
 
 void TWPartitionManager::Parse_Users() {
 #ifdef TW_INCLUDE_FBE
@@ -2284,31 +2376,38 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 		while (!TWFunc::Path_Exists("/data/system/users/gatekeeper.password.key") && --retry_count)
 			usleep(2000); // A small sleep is needed after mounting /data to ensure reliable decrypt...maybe because of DE?
 		gui_msg(Msg("decrypting_user_fbe=Attempting to decrypt FBE for user {1}...")(user_id));
-		if (user_id != 0) {
-			gui_msg(Msg(msg::kError, "readonly_decrypt_user0_only=This recovery build only permits read-only decryption of user 0."));
-			return -1;
-		}
-		std::string readonly_status;
-		uint64_t retry_timeout_ms = 0;
-		if (android::vold::Decrypt_User0_ReadOnly(
-				Password, &readonly_status, &retry_timeout_ms)) {
+		if (android::vold::Decrypt_User_With_Runtime(user_id, Password)) {
 			gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")(user_id));
-			bool mtp_refresh_failed = false;
-			if (!Refresh_User0_ReadOnly_Decrypt_State(&mtp_refresh_failed)) {
-				gui_msg(Msg(msg::kWarning, "readonly_decrypt_state_refresh_failed=Decrypt succeeded, but TWRP state refresh was incomplete."));
-				LOGERR("User 0 read-only decrypt succeeded, but runtime state refresh was incomplete.\n");
+			Mark_User_Decrypted(user_id);
+#ifdef TW_SKIP_FBE_DEFAULT_PASSWORD
+			if (user_id == 0) {
+				for (auto& user : Users_List) {
+					const int default_user_id = atoi(user.userId.c_str());
+					if (default_user_id == 0 || user.isDecrypted || user.type != 0)
+						continue;
+
+					LOGINFO("Automatically decrypting credential-free user %d.\n",
+						default_user_id);
+					gui_msg(Msg("decrypting_user_fbe=Attempting to decrypt FBE for user {1}...")
+						(default_user_id));
+					if (android::vold::Decrypt_User_With_Runtime(default_user_id, "!")) {
+						gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")
+							(default_user_id));
+						Mark_User_Decrypted(default_user_id);
+					} else {
+						gui_msg(Msg(msg::kError,
+							"decrypt_user_fail_fbe=Failed to decrypt user {1}")
+							(default_user_id));
+					}
+				}
 			}
+#endif
+#ifdef TW_DASH_RELEASE_CRYPTO_MOUNTS_AFTER_DECRYPT
+			Dash_Release_Crypto_Mounts_If_Decrypted();
+#endif
 			return 0;
 		} else {
-			if (readonly_status == "busy") {
-				gui_msg(Msg(msg::kWarning, "readonly_decrypt_busy=Another decrypt attempt is already in progress."));
-			} else if (readonly_status == "throttled") {
-				const uint64_t retry_timeout_seconds =
-					(retry_timeout_ms + 999) / 1000;
-				gui_msg(Msg(msg::kWarning, "readonly_decrypt_throttled=Credential hardware requires waiting {1} seconds before retrying.")(retry_timeout_seconds));
-			} else {
-				gui_msg(Msg(msg::kError, "decrypt_user_fail_fbe=Failed to decrypt user {1}")(user_id));
-			}
+			gui_msg(Msg(msg::kError, "decrypt_user_fail_fbe=Failed to decrypt user {1}")(user_id));
 		}
 #else
 		LOGERR("FBE support is not present\n");

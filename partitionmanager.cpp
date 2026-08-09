@@ -2202,8 +2202,7 @@ void TWPartitionManager::Dash_Release_Crypto_Mounts_If_Decrypted() {
 	}
 
 	const bool vendor_mounted = Is_Mounted_By_Path("/vendor");
-	const bool odm_mounted = Is_Mounted_By_Path("/odm");
-	if (!vendor_mounted && !odm_mounted)
+	if (android::base::GetProperty("twrp.crypto.runtime.released", "0") == "1")
 		return;
 
 	if (!android::base::SetProperty("twrp.crypto.runtime.released", "1") ||
@@ -2230,18 +2229,13 @@ void TWPartitionManager::Dash_Release_Crypto_Mounts_If_Decrypted() {
 		return;
 	}
 
-	if (odm_mounted) {
-		if (!UnMount_By_Path("/odm", true, 0))
-			LOGERR("dash crypto release: ordinary /odm unmount failed.\n");
-		else
-			LOGINFO("dash crypto release: /odm unmounted normally.\n");
-	}
 	if (vendor_mounted) {
 		if (!UnMount_By_Path("/vendor", true, 0))
 			LOGERR("dash crypto release: ordinary /vendor unmount failed.\n");
 		else
 			LOGINFO("dash crypto release: /vendor unmounted normally.\n");
 	}
+	LOGINFO("dash crypto release: /odm remains mounted for device runtime services.\n");
 }
 #endif
 

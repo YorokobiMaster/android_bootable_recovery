@@ -196,7 +196,7 @@ ifeq ($(TW_INCLUDE_OMAPI), true)
 	LOCAL_MODULE := se_omapi.xml
 	LOCAL_MODULE_TAGS := optional
 	LOCAL_MODULE_CLASS := EXECUTABLES
-	LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/vintf/manifest
+	LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/vintf/manifest
 	LOCAL_SRC_FILES := init/$(LOCAL_MODULE)
 	include $(BUILD_PREBUILT)
 endif

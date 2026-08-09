@@ -2124,6 +2124,7 @@ bool Dash_Stop_Credential_Services(std::string* failed_service) {
 		"vendor.gatekeeper_mitee",
 		"vendor.keymint-mitee",
 		"vendor.weaver_nxp",
+		"se_omapi",
 		"vendor.secure_element_hal_service",
 		"miweaver_hal_service",
 		"tee-supplicant",

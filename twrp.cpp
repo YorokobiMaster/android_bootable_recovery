@@ -17,6 +17,7 @@
 */
 
 #include <stdio.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string>
 #include <sys/stat.h>
@@ -76,6 +77,14 @@ extern "C" {
 TWPartitionManager PartitionManager;
 int Log_Offset;
 bool datamedia;
+
+static void Mark_Boot_Stage(const char* stage) {
+	int fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	write(fd, stage, strlen(stage));
+	close(fd);
+}
 
 static void Print_Prop(const char *key, const char *name, void *cookie) {
 	printf("%s=%s\n", key, name);
@@ -343,6 +352,7 @@ int main(int argc, char **argv) {
 	// linker has already loaded this process' DT_NEEDED closure before main(),
 	// so do not leak that search path to filesystem tools or child services.
 	unsetenv("LD_LIBRARY_PATH");
+	Mark_Boot_Stage("<6>dash-recovery: stage=twrp-main\n");
 
 	// Recovery needs to install world-readable files, so clear umask
 	// set by init
@@ -399,6 +409,7 @@ int main(int argc, char **argv) {
 		LOGERR("Failing out of recovery due to problem with fstab.\n");
 		return -1;
 	}
+	Mark_Boot_Stage("<6>dash-recovery: stage=fstab-ready\n");
 
 #ifdef TW_LOAD_VENDOR_MODULES
 	if (startup.Get_Fastboot_Mode()) {
@@ -422,6 +433,7 @@ int main(int argc, char **argv) {
 
 	// Load up all the resources
 	gui_loadResources();
+	Mark_Boot_Stage("<6>dash-recovery: stage=ui-ready\n");
 
 	DataManager::ReadSettingsFile();
 	PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));

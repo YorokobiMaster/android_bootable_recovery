@@ -368,7 +368,7 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
         libgatekeeper_aidl \
         libkeymint_support-twrp-a15
 
-    LOCAL_STATIC_LIBRARIES += libsqlite_static_twrp_keystore
+    LOCAL_STATIC_LIBRARIES += libsqlite_static_minimal
 
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE_METADATA_DECRYPT
 

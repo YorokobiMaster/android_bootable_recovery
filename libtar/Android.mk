@@ -14,7 +14,7 @@ LOCAL_C_INCLUDES += external/libselinux/include
 LOCAL_SHARED_LIBRARIES += libselinux
 
 ifeq ($(TW_INCLUDE_CRYPTO_FBE), true)
-    LOCAL_STATIC_LIBRARIES += libvold libsqlite_static_twrp_keystore libscrypt_static libasync_safe
+    LOCAL_STATIC_LIBRARIES += libvold libsqlite_static_minimal libscrypt_static libasync_safe
     LOCAL_SHARED_LIBRARIES +=  \
         android.hardware.gatekeeper-V1-ndk-twrp-a15 \
         android.hardware.security.keymint-V3-ndk-twrp-a15 \
